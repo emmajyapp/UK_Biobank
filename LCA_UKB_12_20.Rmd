@@ -1,0 +1,1962 @@
+---
+title: "Latent Class Analysis"
+author: "Emma Yapp"
+date: "28 March 2019"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+ANALYSIS
+========
+
+##1. Loading necessary packages
+```{r setup, Loading packages}
+knitr::opts_chunk$set(echo = TRUE)
+require("knitr")
+opts_knit$set(root.dir = "Documents/Academia/King's work/UKBiobank/R materials/")
+
+library(dplyr)
+library(data.table)
+library(Hmisc)
+library(stringi)
+library(poLCA)
+library(ggplot2)
+library(ztable)
+
+options(ztable.type = "html")
+
+```
+
+##2. Defining dataset and directory
+Some participants have since withdrawn their participation from the UK Biobank, and therefore had to be removed.
+```{r, Defining dataset and directory}
+###Setting the working directory
+setwd("L:/LARA VP/Other projects/UK Biobank/R materials")
+#setwd("My Documents/Academia/King's work/UKBiobank/R materials/")
+MHQ_full<-read.table("Process_MH_Questionnaire_Output (2).txt", header=T)
+
+###Participants who have withdrawn
+withdrawals<-read.csv("Participant withdrawal.csv", header=T)
+
+###MHQ without withdrawals from 2019
+MHQ_withdrawals<-MHQ_full[which(MHQ_full$f.eid %in% withdrawals$f.eid), ]
+Current.sample<-MHQ_full[-which(MHQ_full$f.eid %in% withdrawals$f.eid), ]
+
+###Participants who withdrew in 2020
+withdrawals.second<-read.csv("Participant withdrawal 2020.csv", header=T)
+
+###MHQ without withdrawals from 2020
+Second_withdrawals<-Current.sample[which(Current.sample$f.eid %in% withdrawals.second$f.eid), ]
+
+###Dims == 0, NFA.
+
+```
+
+##3.  Defining variables
+(1) We defined each individual adversity item according to how they were coded in the Davis paper.
+(2) We dummy code potential covariates for later analysis.
+```{r, Defining variables}
+
+###Adversity, coded as 1 and 2 for use with poLCA package
+Current.sample$Emotional.childhood.neglect<-with(Current.sample, ifelse((is.na(f.20489.0.0) | f.20489.0.0 < 0), NA,
+                                                  ifelse((4-f.20489.0.0) > 1, 2, 1)))
+
+Current.sample$Physical.childhood.abuse<-with(Current.sample, ifelse((is.na(f.20488.0.0) | f.20488.0.0 < 0), NA,
+                                               ifelse((f.20488.0.0 > 0), 2, 1)))
+
+Current.sample$Emotional.childhood.abuse<-with(Current.sample, ifelse((is.na(f.20487.0.0) | f.20487.0.0 < 0), NA,
+                                                ifelse((f.20487.0.0 > 0), 2, 1)))
+
+Current.sample$Sexual.childhood.abuse<-with(Current.sample, ifelse((is.na(f.20490.0.0) | f.20490.0.0 < 0), NA,
+                                             ifelse((f.20490.0.0 > 0), 2, 1)))
+
+Current.sample$Physical.childhood.neglect<-with(Current.sample, ifelse((is.na(f.20491.0.0) | f.20491.0.0 < 0), NA,
+                                                 ifelse((4-f.20491.0.0) > 0, 2, 1)))
+
+Current.sample$Relationship.security<-with(Current.sample, ifelse((is.na(f.20522.0.0) | f.20522.0.0 < 0), NA,
+                                            ifelse((4-f.20522.0.0) > 1, 2, 1)))
+
+Current.sample$Physical.IPV<-with(Current.sample, ifelse((is.na(f.20523.0.0) | f.20523.0.0 < 0), NA,
+                                   ifelse((f.20523.0.0 > 0), 2, 1)))
+
+Current.sample$Psychological.IPV<-with(Current.sample, ifelse((is.na(f.20521.0.0) | f.20521.0.0 < 0), NA,
+                                        ifelse((f.20521.0.0 > 0), 2, 1)))
+
+Current.sample$Sexual.IPV<-with(Current.sample, ifelse((is.na(f.20524.0.0) | f.20524.0.0 < 0), NA,
+                                 ifelse((f.20524.0.0 > 0), 2, 1)))
+
+Current.sample$Financial.security<-with(Current.sample, ifelse((is.na(f.20525.0.0) | f.20525.0.0 < 0), NA,
+                                         ifelse((4-f.20525.0.0) > 0, 2, 1)))
+
+Current.sample$Serious.accident<-with(Current.sample, ifelse((is.na(f.20526.0.0) | f.20526.0.0 < 0), NA,
+                                       ifelse((f.20526.0.0 > 0), 2, 1)))
+
+Current.sample$Witness.death<-with(Current.sample, ifelse((is.na(f.20530.0.0) | f.20530.0.0 < 0), NA,
+                                    ifelse((f.20530.0.0 > 0), 2, 1)))
+
+Current.sample$Serious.illness<-with(Current.sample, ifelse((is.na(f.20528.0.0) | f.20528.0.0 < 0), NA,
+                                      ifelse((f.20528.0.0 > 0), 2, 1)))
+
+Current.sample$Experienced.war<-with(Current.sample, ifelse((is.na(f.20527.0.0) | f.20527.0.0 < 0), NA,
+                                      ifelse((f.20527.0.0 > 0), 2, 1)))
+
+Current.sample$Sexual.Violence.LCA<-with(Current.sample, ifelse((is.na(f.20531.0.0) | f.20531.0.0 < 0), NA,
+                                          ifelse((f.20531.0.0 > 0), 2, 1)))	
+
+Current.sample$Community.Violence.LCA<-with(Current.sample, ifelse((is.na(f.20529.0.0) | f.20529.0.0 < 0), NA,
+                                             ifelse((f.20529.0.0 > 0), 2, 1)))
+
+
+
+###Dummy coding sociodemographics
+
+###Ethnicity
+
+Current.sample$Ethnicity.recoded<-with(Current.sample, ifelse(Current.sample$Ethnicity=="Asian", 1, ifelse(Current.sample$Ethnicity=="Black", 1, ifelse(Current.sample$Ethnicity=="Chinese", 1, ifelse(Current.sample$Ethnicity=="Mixed", 1, ifelse(Current.sample$Ethnicity=="Other", 1, ifelse (Current.sample$Ethnicity=="White", 0, NA)))))))
+                                                              
+
+###Towsend Deprivation
+
+Current.sample$Townsend.Deprivation<-with(Current.sample, ifelse(is.na(TDI.Tertiles), NA,
+                                                                 ifelse(TDI.Tertiles=="Least", 0,
+                                                                        ifelse(TDI.Tertiles=="Average", 1,
+                                                                               ifelse(TDI.Tertiles=="Most", 2, NA)))))
+
+###Highest qualification
+
+Current.sample$Education<-with(Current.sample, ifelse(is.na(Highest.Qualification), NA,
+                                                      ifelse(Highest.Qualification=="NoneOfTheAbove", 0,
+                                                             ifelse(Highest.Qualification=="Other", 1, 
+                                                             ifelse(Highest.Qualification=="GCSE", 2,
+                                                                    ifelse(Highest.Qualification=="ALevel", 3,
+                                                                           ifelse(Highest.Qualification=="Degree", 4, NA)))))))
+
+
+###Household income: "Don't Know" coded as NA along with "Prefer not to say"
+
+Current.sample$Household.Income<-with(Current.sample, ifelse(f.738.0.0<0, NA, f.738.0.0))
+
+##Separate datasets by sex
+
+Current.sample_Female<-Current.sample[Current.sample$Gender == 0, ]
+Current.sample_Male<-Current.sample[Current.sample$Gender == 1, ]
+
+
+```
+
+##4. Conducting descriptives of sociodemographics
+
+```{r, Sociodemographics}
+sink("Sociodemographics_sample.txt")
+cat("MHQ Participants since withdrawals, female gender = 0\n")
+print(summary(Gender ~ Age.Group + Ethnicity + Migrant.Status + Loneliness + Social.Isolation + TDI.Tertiles + Highest.Qualification + Income + Longstanding.Illness, data=Current.sample, fun=table))
+sink()
+
+summary(Gender ~ Age.Group + Ethnicity + Migrant.Status + Loneliness + Social.Isolation + TDI.Tertiles + Highest.Qualification + Income + Longstanding.Illness, data=Current.sample, fun=table)
+
+```
+
+##5. Creating tables of adversity items
+We first examine the prevalence of individual trauma items (in the sample as a whole, and for males and females separately), then produce a summary table for inspection.
+```{r, Adversity}
+####Making tables to summarise prevalence
+
+##Full sample
+
+i1<-table(Current.sample$Emotional.childhood.neglect, useNA="always")
+I1<-prop.table(i1)*100
+
+i2<-table(Current.sample$Physical.childhood.abuse, useNA="always")
+I2<-prop.table(i2)*100
+
+i3<-table(Current.sample$Emotional.childhood.abuse, useNA="always")
+I3<-prop.table(i3)*100
+
+i4<-table(Current.sample$Sexual.childhood.abuse, useNA="always")
+I4<-prop.table(i4)*100
+
+i5<-table(Current.sample$Physical.childhood.neglect, useNA="always")
+I5<-prop.table(i5)*100
+
+i6<-table(Current.sample$Relationship.security, useNA="always")
+I6<-prop.table(i6)*100
+
+i7<-table(Current.sample$Physical.IPV, useNA="always")
+I7<-prop.table(i7)*100
+
+i8<-table(Current.sample$Psychological.IPV, useNA="always")
+I8<-prop.table(i8)*100
+
+i9<-table(Current.sample$Sexual.IPV, useNA="always")
+I9<-prop.table(i9)*100
+
+i10<-table(Current.sample$Financial.security, useNA="always")
+I10<-prop.table(i10)*100
+
+i11<-table(Current.sample$Serious.accident, useNA="always")
+I11<-prop.table(i11)*100
+
+i12<-table(Current.sample$Witness.death, useNA="always")
+I12<-prop.table(i12)*100
+
+i13<-table(Current.sample$Serious.illness, useNA="always")
+I13<-prop.table(i13)*100
+
+i14<-table(Current.sample$Experienced.war, useNA="always")
+I14<-prop.table(i14)*100
+
+i15<-table(Current.sample$Sexual.Violence.LCA, useNA="always")
+I15<-prop.table(i15)*100
+
+i16<-table(Current.sample$Community.Violence.LCA, useNA="always")
+I16<-prop.table(i16)*100
+
+####Separately for males and females
+
+i1_m<-table(Current.sample_Male$Emotional.childhood.neglect, useNA="always")
+I1_m<-prop.table(i1_m)*100
+
+i2_m<-table(Current.sample_Male$Physical.childhood.abuse, useNA="always")
+I2_m<-prop.table(i2_m)*100
+
+i3_m<-table(Current.sample_Male$Emotional.childhood.abuse, useNA="always")
+I3_m<-prop.table(i3_m)*100
+
+i4_m<-table(Current.sample_Male$Sexual.childhood.abuse, useNA="always")
+I4_m<-prop.table(i4_m)*100
+
+i5_m<-table(Current.sample_Male$Physical.childhood.neglect, useNA="always")
+I5_m<-prop.table(i5_m)*100
+
+i6_m<-table(Current.sample_Male$Relationship.security, useNA="always")
+I6_m<-prop.table(i6_m)*100
+
+i7_m<-table(Current.sample_Male$Physical.IPV, useNA="always")
+I7_m<-prop.table(i7_m)*100
+
+i8_m<-table(Current.sample_Male$Psychological.IPV, useNA="always")
+I8_m<-prop.table(i8_m)*100
+
+i9_m<-table(Current.sample_Male$Sexual.IPV, useNA="always")
+I9_m<-prop.table(i9_m)*100
+
+i10_m<-table(Current.sample_Male$Financial.security, useNA="always")
+I10_m<-prop.table(i10_m)*100
+
+i11_m<-table(Current.sample_Male$Serious.accident, useNA="always")
+I11_m<-prop.table(i11_m)*100
+
+i12_m<-table(Current.sample_Male$Witness.death, useNA="always")
+I12_m<-prop.table(i12_m)*100
+
+i13_m<-table(Current.sample_Male$Serious.illness, useNA="always")
+I13_m<-prop.table(i13_m)*100
+
+i14_m<-table(Current.sample_Male$Experienced.war, useNA="always")
+I14_m<-prop.table(i14_m)*100
+
+i15_m<-table(Current.sample_Male$Sexual.Violence.LCA, useNA="always")
+I15_m<-prop.table(i15_m)*100
+
+i16_m<-table(Current.sample_Male$Community.Violence.LCA, useNA="always")
+I16_m<-prop.table(i16_m)*100
+
+i1_f<-table(Current.sample_Female$Emotional.childhood.neglect, useNA="always")
+I1_f<-prop.table(i1_f)*100
+
+i2_f<-table(Current.sample_Female$Physical.childhood.abuse, useNA="always")
+I2_f<-prop.table(i2_f)*100
+
+i3_f<-table(Current.sample_Female$Emotional.childhood.abuse, useNA="always")
+I3_f<-prop.table(i3_f)*100
+
+i4_f<-table(Current.sample_Female$Sexual.childhood.abuse, useNA="always")
+I4_f<-prop.table(i4_f)*100
+
+i5_f<-table(Current.sample_Female$Physical.childhood.neglect, useNA="always")
+I5_f<-prop.table(i5_f)*100
+
+i6_f<-table(Current.sample_Female$Relationship.security, useNA="always")
+I6_f<-prop.table(i6_f)*100
+
+i7_f<-table(Current.sample_Female$Physical.IPV, useNA="always")
+I7_f<-prop.table(i7_f)*100
+
+i8_f<-table(Current.sample_Female$Psychological.IPV, useNA="always")
+I8_f<-prop.table(i8_f)*100
+
+i9_f<-table(Current.sample_Female$Sexual.IPV, useNA="always")
+I9_f<-prop.table(i9_f)*100
+
+i10_f<-table(Current.sample_Female$Financial.security, useNA="always")
+I10_f<-prop.table(i10_f)*100
+
+i11_f<-table(Current.sample_Female$Serious.accident, useNA="always")
+I11_f<-prop.table(i11_f)*100
+
+i12_f<-table(Current.sample_Female$Witness.death, useNA="always")
+I12_f<-prop.table(i12_f)*100
+
+i13_f<-table(Current.sample_Female$Serious.illness, useNA="always")
+I13_f<-prop.table(i13_f)*100
+
+i14_f<-table(Current.sample_Female$Experienced.war, useNA="always")
+I14_f<-prop.table(i14_f)*100
+
+i15_f<-table(Current.sample_Female$Sexual.Violence.LCA, useNA="always")
+I15_f<-prop.table(i15_f)*100
+
+i16_f<-table(Current.sample$Community.Violence.LCA, useNA="always")
+I16_f<-prop.table(i16_f)*100
+
+#######Writing the table
+
+full_sample.freq<- c(as.numeric(i1[2]),as.numeric(i2[2]),as.numeric(i3[2]),as.numeric(i4[2]),as.numeric(i5[2]),as.numeric(i6[2]),as.numeric(i7[2]),as.numeric(i8[2]),as.numeric(i9[2]),as.numeric(i10[2]),as.numeric(i11[2]),as.numeric(i12[2]),as.numeric(i13[2]),as.numeric(i14[2]),as.numeric(i15[2]),as.numeric(i16[2]))
+
+full_sample<- c(as.numeric(I1[2]),as.numeric(I2[2]),as.numeric(I3[2]),as.numeric(I4[2]),as.numeric(I5[2]),as.numeric(I6[2]),as.numeric(I7[2]),as.numeric(I8[2]),as.numeric(I9[2]),as.numeric(I10[2]),as.numeric(I11[2]),as.numeric(I12[2]),as.numeric(I13[2]),as.numeric(I14[2]),as.numeric(I15[2]),as.numeric(I16[2]))
+
+men.freq<-c(as.numeric(i1_m[2]),as.numeric(i2_m[2]),as.numeric(i3_m[2]),as.numeric(i4_m[2]),as.numeric(i5_m[2]),as.numeric(i6_m[2]),as.numeric(i7_m[2]),as.numeric(i8_m[2]),as.numeric(i9_m[2]),as.numeric(i10_m[2]),as.numeric(i11_m[2]),as.numeric(i12_m[2]),as.numeric(i13_m[2]),as.numeric(i14_m[2]),as.numeric(i15_m[2]),as.numeric(i16_m[2]))
+
+men<-c(as.numeric(I1_m[2]),as.numeric(I2_m[2]),as.numeric(I3_m[2]),as.numeric(I4_m[2]),as.numeric(I5_m[2]),as.numeric(I6_m[2]),as.numeric(I7_m[2]),as.numeric(I8_m[2]),as.numeric(I9_m[2]),as.numeric(I10_m[2]),as.numeric(I11_m[2]),as.numeric(I12_m[2]),as.numeric(I13_m[2]),as.numeric(I14_m[2]),as.numeric(I15_m[2]),as.numeric(I16_m[2]))
+
+women.freq<-c(as.numeric(i1_f[2]),as.numeric(i2_f[2]),as.numeric(i3_f[2]),as.numeric(i4_f[2]),as.numeric(i5_f[2]),as.numeric(i6_f[2]),as.numeric(i7_f[2]),as.numeric(i8_f[2]),as.numeric(i9_f[2]),as.numeric(i10_f[2]),as.numeric(i11_f[2]),as.numeric(i12_f[2]),as.numeric(i13_f[2]),as.numeric(i14_f[2]),as.numeric(i15_f[2]),as.numeric(i16_f[2]))
+
+women<-c(as.numeric(I1_f[2]),as.numeric(I2_f[2]),as.numeric(I3_f[2]),as.numeric(I4_f[2]),as.numeric(I5_f[2]),as.numeric(I6_f[2]),as.numeric(I7_f[2]),as.numeric(I8_f[2]),as.numeric(I9_f[2]),as.numeric(I10_f[2]),as.numeric(I11_f[2]),as.numeric(I12_f[2]),as.numeric(I13_f[2]),as.numeric(I14_f[2]),as.numeric(I15_f[2]),as.numeric(I16_f[2]))
+
+full_sample_missing.freq<- c(as.numeric(i1[3]),as.numeric(i2[3]),as.numeric(i3[3]),as.numeric(i4[3]),as.numeric(i5[3]),as.numeric(i6[3]),as.numeric(i7[3]),as.numeric(i8[3]),as.numeric(i9[3]),as.numeric(i10[3]),as.numeric(i11[3]),as.numeric(i12[3]),as.numeric(i13[3]),as.numeric(i14[3]),as.numeric(i15[3]),as.numeric(i16[3]))
+
+full_sample_missing<- c(as.numeric(I1[3]),as.numeric(I2[3]),as.numeric(I3[3]),as.numeric(I4[3]),as.numeric(I5[3]),as.numeric(I6[3]),as.numeric(I7[3]),as.numeric(I8[3]),as.numeric(I9[3]),as.numeric(I10[3]),as.numeric(I11[3]),as.numeric(I12[3]),as.numeric(I13[3]),as.numeric(I14[3]),as.numeric(I15[3]),as.numeric(I16[3]))
+
+men_missing<-c(as.numeric(I1_m[3]),as.numeric(I2_m[3]),as.numeric(I3_m[3]),as.numeric(I4_m[3]),as.numeric(I5_m[3]),as.numeric(I6_m[3]),as.numeric(I7_m[3]),as.numeric(I8_m[3]),as.numeric(I9_m[3]),as.numeric(I10_m[3]),as.numeric(I11_m[3]),as.numeric(I12_m[3]),as.numeric(I13_m[3]),as.numeric(I14_m[3]),as.numeric(I15_m[3]),as.numeric(I16_m[3]))
+
+women_missing<-c(as.numeric(I1_f[3]),as.numeric(I2_f[3]),as.numeric(I3_f[3]),as.numeric(I4_f[3]),as.numeric(I5_f[3]),as.numeric(I6_f[3]),as.numeric(I7_f[3]),as.numeric(I8_f[3]),as.numeric(I9_f[3]),as.numeric(I10_f[3]),as.numeric(I11_f[3]),as.numeric(I12_f[3]),as.numeric(I13_f[3]),as.numeric(I14_f[3]),as.numeric(I15_f[3]),as.numeric(I16_f[3]))
+
+all<-cbind(full_sample.freq, full_sample, men.freq, men, women.freq, women, full_sample_missing.freq, full_sample_missing)
+
+dimnames(all)<-list(c("Emotional childhood neglect", "Physical childhood abuse", "Emotional childhood abuse", "Sexual childhood abuse", "Physical childhood neglect", "Relationship insecurity", "Physical IPV", "Psychological IPV", "Sexual IPV", "Financial insecurity", "Serious accident", "Witness death", "Serious illness", "Experienced war", "Sexual violence ever", "Community violence ever"), c("Whole sample N","Whole sample (%)", "Males N", "Males (%)", "Females N", "Females (%)", "Whole sample missing N", "Whole sample missng (%)"))
+print(all, digits=1)
+
+
+```
+
+
+###6. Latent Class Analysis
+First we prepared the data for use with the poLCA package
+```{r, poLCA}
+
+###preparing the data for the poLCA package
+
+LCAdata <- Current.sample %>% dplyr::select(f.eid, Emotional.childhood.neglect, Physical.childhood.abuse, Emotional.childhood.abuse, Sexual.childhood.abuse, Physical.childhood.neglect, Relationship.security, Physical.IPV, Psychological.IPV, Sexual.IPV, Financial.security, Serious.accident, Witness.death, Serious.illness, Experienced.war, Sexual.Violence.LCA, Community.Violence.LCA)
+
+###preparing the formula for the poLCA package
+
+LCA.test<-with(LCAdata, cbind(Emotional.childhood.neglect, Physical.childhood.abuse, Emotional.childhood.abuse, Sexual.childhood.abuse, Physical.childhood.neglect, Relationship.security, Physical.IPV, Psychological.IPV, Sexual.IPV, Financial.security, Serious.accident, Witness.death, Serious.illness, Experienced.war, Sexual.Violence.LCA, Community.Violence.LCA)~1)
+```
+
+Next, the LCA was conducted on the sample as a whole.
+```{r, lca}
+####Generating LCA models
+
+lc1<-poLCA(LCA.test, data=LCAdata, nclass=1, na.rm = FALSE, nrep=30, maxiter=3000, tol=1e-5) 
+lc2<-poLCA(LCA.test, data=LCAdata, nclass=2, na.rm = FALSE, nrep=30, maxiter=3000, tol=1e-5)
+lc3<-poLCA(LCA.test, data=LCAdata, nclass=3, na.rm = FALSE, nrep=30, maxiter=3000, tol=1e-5)
+lc4<-poLCA(LCA.test, data=LCAdata, nclass=4, na.rm = FALSE, nrep=30, maxiter=3000, tol=1e-5) 
+lc5<-poLCA(LCA.test, data=LCAdata, nclass=5, na.rm = FALSE, nrep=30, maxiter=3000, tol=1e-5)
+lc6<-poLCA(LCA.test, data=LCAdata, nclass=6, na.rm = FALSE, nrep=30, maxiter=3000, tol=1e-5)
+
+```
+
+To scrutinise the results of LCA, we generated a table of fit statistics.
+```{r, lca_results, echo=FALSE}
+#####Table to display results of LCA
+
+results <- data.frame(Modell=c("Modell 1"),
+                      log_likelihood=lc1$llik,
+                      df = lc1$resid.df,
+                      BIC=lc1$bic,
+                      ABIC=  (-2*lc1$llik) + ((log((lc1$N + 2)/24)) * lc1$npar),
+                      CAIC = (-2*lc1$llik) + lc1$npar * (1 + log(lc1$N)), 
+                      likelihood_ratio=lc1$Gsq)
+results$Modell<-as.integer(results$Modell)
+results[1,1]<-c("Modell 1")
+results[2,1]<-c("Modell 2")
+results[3,1]<-c("Modell 3")
+results[4,1]<-c("Modell 4")
+results[5,1]<-c("Modell 5")
+results[6,1]<-c("Modell 6")
+
+results[2,2]<-lc2$llik
+results[3,2]<-lc3$llik
+results[4,2]<-lc4$llik
+results[5,2]<-lc5$llik
+results[6,2]<-lc6$llik
+
+results[2,3]<-lc2$resid.df
+results[3,3]<-lc3$resid.df
+results[4,3]<-lc4$resid.df
+results[5,3]<-lc5$resid.df
+results[6,3]<-lc6$resid.df
+
+results[2,4]<-lc2$bic
+results[3,4]<-lc3$bic
+results[4,4]<-lc4$bic
+results[5,4]<-lc5$bic
+results[6,4]<-lc6$bic
+
+results[2,5]<-(-2*lc2$llik) + ((log((lc2$N + 2)/24)) * lc2$npar) #abic
+results[3,5]<-(-2*lc3$llik) + ((log((lc3$N + 2)/24)) * lc3$npar)
+results[4,5]<-(-2*lc4$llik) + ((log((lc4$N + 2)/24)) * lc4$npar)
+results[5,5]<-(-2*lc5$llik) + ((log((lc5$N + 2)/24)) * lc5$npar)
+results[6,5]<-(-2*lc6$llik) + ((log((lc6$N + 2)/24)) * lc6$npar)
+
+results[2,6]<- (-2*lc2$llik) + lc2$npar * (1 + log(lc2$N)) #caic
+results[3,6]<- (-2*lc3$llik) + lc3$npar * (1 + log(lc3$N))
+results[4,6]<- (-2*lc4$llik) + lc4$npar * (1 + log(lc4$N))
+results[5,6]<- (-2*lc5$llik) + lc5$npar * (1 + log(lc5$N))
+results[6,6]<- (-2*lc6$llik) + lc6$npar * (1 + log(lc6$N))
+
+results[2,7]<-lc2$Gsq
+results[3,7]<-lc3$Gsq
+results[4,7]<-lc4$Gsq
+results[5,7]<-lc5$Gsq
+results[6,7]<-lc6$Gsq
+
+####Adding entropy to the results
+
+entropy<-function (p) sum(-p*log(p))
+
+results$R2_entropy
+results[1,8]<-c("-")
+
+error_prior<-entropy(lc2$P) # class proportions model 2
+error_post<-mean(apply(lc2$posterior,1, entropy),na.rm = TRUE)
+results[2,8]<-round(((error_prior-error_post) / error_prior),3)
+
+error_prior<-entropy(lc3$P) # class proportions model 3
+error_post<-mean(apply(lc3$posterior,1, entropy),na.rm = TRUE)
+results[3,8]<-round(((error_prior-error_post) / error_prior),3)
+
+error_prior<-entropy(lc4$P) # class proportions model 4
+error_post<-mean(apply(lc4$posterior,1, entropy),na.rm = TRUE)
+results[4,8]<-round(((error_prior-error_post) / error_prior),3)
+
+error_prior<-entropy(lc5$P) # class proportions model 5
+error_post<-mean(apply(lc5$posterior,1, entropy),na.rm = TRUE)
+results[5,8]<-round(((error_prior-error_post) / error_prior),3)
+
+error_prior<-entropy(lc6$P) # class proportions model 6
+error_post<-mean(apply(lc6$posterior,1, entropy),na.rm = TRUE)
+results[6,8]<-round(((error_prior-error_post) / error_prior),3)
+
+# combining results to a dataframe
+colnames(results)<-c("Model","log-likelihood","resid. df","BIC","aBIC","cAIC","likelihood-ratio","Entropy")
+lca_results<-results
+
+######Display results
+
+ztable::ztable(lca_results)
+```
+
+```{r results='asis'}
+ztable(lca_results)
+```
+
+We scrutinised the average posterior probabilities of individuals assigned to classes using modal assignment:
+```{r results='posteriors_m3'}
+
+Fullsample.5<-as.data.frame(cbind(lc5$predclass, lc5$posterior))
+
+Average.posteriors.lc5<-(aggregate(Fullsample.5[,2:6], list(Fullsample.5$V1), mean))
+colnames(Average.posteriors.lc5)<-c("Class", "Class 1", "Class 2", "Class 3", "Class 4", "Class 5")
+print(Average.posteriors.lc5)
+write.csv(Average.posteriors.lc5, file = "Average_posteriors_5_classes_fullsample.csv", col.names=T, row.names=T)
+
+```
+
+```{r results='posteriors_m3'}
+
+Fullsample.4<-as.data.frame(cbind(lc4$predclass, lc4$posterior))
+
+Average.posteriors.lc4<-(aggregate(Fullsample.4[,2:5], list(Fullsample.4$V1), mean))
+colnames(Average.posteriors.lc4)<-c("Class", "Class 1", "Class 2", "Class 3", "Class 4")
+print(Average.posteriors.lc4)
+write.csv(Average.posteriors.lc4, file = "Average_posteriors_4_classes_fullsample.csv", col.names=T, row.names=T)
+
+```
+
+Graphs were also scrutinised to examine the most appropriate class solutions.
+
+```{r, lca_graph}
+######Graph to display results for 5 class solution
+
+lcmodel <- reshape2::melt(lc5$probs, level=2)
+zp1 <- ggplot(lcmodel,aes(x = L2, y = value, fill = Var2))
+zp1 <- zp1 + geom_bar(stat = "identity", position = "stack")
+zp1 <- zp1 + facet_grid(Var1 ~ .) 
+zp1 <- zp1 + scale_fill_brewer(type="seq", palette="Greys") +theme_bw()
+zp1 <- zp1 + labs(x = "Items",y="Classes", fill ="Class-predicted probabilities")
+zp1 <- zp1 + theme( axis.text.y=element_blank(),
+                    axis.ticks.y=element_blank(),                    
+                    panel.grid.major.y=element_blank())
+zp1 <- zp1 + guides(fill = guide_legend(reverse=TRUE))
+zp1<- zp1 + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+print(zp1)
+
+png(filename = "5 class solution FS.png")
+print(zp1)
+dev.off()
+
+print(zp1)
+
+######Graph to display results for 4 class solution
+
+lcmodel <- reshape2::melt(lc4$probs, level=2)
+zp2 <- ggplot(lcmodel,aes(x = L2, y = value, fill = Var2))
+zp2 <- zp2 + geom_bar(stat = "identity", position = "stack")
+zp2 <- zp2 + facet_grid(Var1 ~ .) 
+zp2 <- zp2 + scale_fill_brewer(type="seq", palette="Greys") +theme_bw()
+zp2 <- zp2 + labs(x = "Items",y="Classes", fill ="Class-predicted probabilities")
+zp2 <- zp2 + theme( axis.text.y=element_blank(),
+                    axis.ticks.y=element_blank(),                    
+                    panel.grid.major.y=element_blank())
+zp2 <- zp2 + guides(fill = guide_legend(reverse=TRUE))
+zp2<- zp2 + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+print(zp2)
+
+png(filename = "4 class solution FS.png")
+print(zp2)
+dev.off()
+
+print(zp2)
+print(zp2$P)
+```
+
+
+##7. Latent class analysis in males
+
+Then we prepared the male data for use with the poLCA package.
+
+```{r, lca_m}
+###Data
+
+LCAdata_Male <- Current.sample_Male %>% dplyr::select(Emotional.childhood.neglect, Physical.childhood.abuse, Emotional.childhood.abuse, Sexual.childhood.abuse, Physical.childhood.neglect, Relationship.security, Physical.IPV, Psychological.IPV, Sexual.IPV, Financial.security, Serious.accident, Witness.death, Serious.illness, Experienced.war, Sexual.Violence.LCA, Community.Violence.LCA)
+
+###Formula
+
+LCA.test_Male<-with(LCAdata_Male, cbind(Emotional.childhood.neglect, Physical.childhood.abuse, Emotional.childhood.abuse, Sexual.childhood.abuse, Physical.childhood.neglect, Relationship.security, Physical.IPV, Psychological.IPV, Sexual.IPV, Financial.security, Serious.accident, Witness.death, Serious.illness, Experienced.war, Sexual.Violence.LCA, Community.Violence.LCA)~1)
+```
+
+Then ran the LCA in males alone.
+
+```{r, lca_m_analysis}
+lc1_m<-poLCA(LCA.test_Male, data=LCAdata_Male, nclass=1, na.rm = FALSE, nrep=30, maxiter=3000, tol=1e-5) 
+lc2_m<-poLCA(LCA.test_Male, data=LCAdata_Male, nclass=2, na.rm = FALSE, nrep=30, maxiter=3000, tol=1e-5)
+lc3_m<-poLCA(LCA.test_Male, data=LCAdata_Male, nclass=3, na.rm = FALSE, nrep=30, maxiter=3000, tol=1e-5)
+lc4_m<-poLCA(LCA.test_Male, data=LCAdata_Male, nclass=4, na.rm = FALSE, nrep=30, maxiter=3000, tol=1e-5) 
+lc5_m<-poLCA(LCA.test_Male, data=LCAdata_Male, nclass=5, na.rm = FALSE, nrep=30, maxiter=3000, tol=1e-5)
+lc6_m<-poLCA(LCA.test_Male, data=LCAdata_Male, nclass=6, na.rm = FALSE, nrep=30, maxiter=3000, tol=1e-5)
+```
+
+Results:
+
+```{r, lca_m_table}
+#####Table to display results of LCA
+
+results <- data.frame(Modell=c("Modell 1"),
+                      log_likelihood=lc1_m$llik,
+                      df = lc1_m$resid.df,
+                      BIC=lc1_m$bic,
+                      ABIC=  (-2*lc1_m$llik) + ((log((lc1_m$N + 2)/24)) * lc1_m$npar),
+                      CAIC = (-2*lc1_m$llik) + lc1_m$npar * (1 + log(lc1_m$N)), 
+                      likelihood_ratio=lc1_m$Gsq)
+results$Modell<-as.integer(results$Modell)
+results[1,1]<-c("Modell 1")
+results[2,1]<-c("Modell 2")
+results[3,1]<-c("Modell 3")
+results[4,1]<-c("Modell 4")
+results[5,1]<-c("Modell 5")
+results[6,1]<-c("Modell 6")
+
+results[2,2]<-lc2_m$llik
+results[3,2]<-lc3_m$llik
+results[4,2]<-lc4_m$llik
+results[5,2]<-lc5_m$llik
+results[6,2]<-lc6_m$llik
+
+results[2,3]<-lc2_m$resid.df
+results[3,3]<-lc3_m$resid.df
+results[4,3]<-lc4_m$resid.df
+results[5,3]<-lc5_m$resid.df
+results[6,3]<-lc6_m$resid.df
+
+results[2,4]<-lc2_m$bic
+results[3,4]<-lc3_m$bic
+results[4,4]<-lc4_m$bic
+results[5,4]<-lc5_m$bic
+results[6,4]<-lc6_m$bic
+
+results[2,5]<-(-2*lc2_m$llik) + ((log((lc2_m$N + 2)/24)) * lc2_m$npar) #abic
+results[3,5]<-(-2*lc3_m$llik) + ((log((lc3_m$N + 2)/24)) * lc3_m$npar)
+results[4,5]<-(-2*lc4_m$llik) + ((log((lc4_m$N + 2)/24)) * lc4_m$npar)
+results[5,5]<-(-2*lc5_m$llik) + ((log((lc5_m$N + 2)/24)) * lc5_m$npar)
+results[6,5]<-(-2*lc6_m$llik) + ((log((lc6_m$N + 2)/24)) * lc6_m$npar)
+
+results[2,6]<- (-2*lc2_m$llik) + lc2_m$npar * (1 + log(lc2_m$N)) #caic
+results[3,6]<- (-2*lc3_m$llik) + lc3_m$npar * (1 + log(lc3_m$N))
+results[4,6]<- (-2*lc4_m$llik) + lc4_m$npar * (1 + log(lc4_m$N))
+results[5,6]<- (-2*lc5_m$llik) + lc5_m$npar * (1 + log(lc5_m$N))
+results[6,6]<- (-2*lc6_m$llik) + lc6_m$npar * (1 + log(lc6_m$N))
+
+results[2,7]<-lc2_m$Gsq
+results[3,7]<-lc3_m$Gsq
+results[4,7]<-lc4_m$Gsq
+results[5,7]<-lc5_m$Gsq
+results[6,7]<-lc6_m$Gsq
+
+####Adding entropy to the results
+
+entropy<-function (p) sum(-p*log(p))
+
+results$R2_entropy
+results[1,8]<-c("-")
+
+error_prior<-entropy(lc2_m$P) # class proportions model 2
+error_post<-mean(apply(lc2_m$posterior,1, entropy),na.rm = TRUE)
+results[2,8]<-round(((error_prior-error_post) / error_prior),3)
+
+error_prior<-entropy(lc3_m$P) # class proportions model 3
+error_post<-mean(apply(lc3_m$posterior,1, entropy),na.rm = TRUE)
+results[3,8]<-round(((error_prior-error_post) / error_prior),3)
+
+error_prior<-entropy(lc4_m$P) # class proportions model 4
+error_post<-mean(apply(lc4_m$posterior,1, entropy),na.rm = TRUE)
+results[4,8]<-round(((error_prior-error_post) / error_prior),3)
+
+error_prior<-entropy(lc5_m$P) # class proportions model 5
+error_post<-mean(apply(lc5_m$posterior,1, entropy),na.rm = TRUE)
+results[5,8]<-round(((error_prior-error_post) / error_prior),3)
+
+error_prior<-entropy(lc6_m$P) # class proportions model 6
+error_post<-mean(apply(lc6_m$posterior,1, entropy),na.rm = TRUE)
+results[6,8]<-round(((error_prior-error_post) / error_prior),3)
+
+# combining results to a dataframe
+colnames(results)<-c("Model","log-likelihood","resid. df","BIC","aBIC","cAIC","likelihood-ratio","Entropy")
+lca_results_m<-results
+
+######Display results
+
+ztable::ztable(lca_results_m)
+```
+
+```{r results='lca_m'}
+ztable(lca_results_m)
+```
+
+We scrutinised the average posterior probabilities of individuals assigned to classes using modal assignment:
+```{r results='posteriors_m3'}
+
+Males.3<-as.data.frame(cbind(lc3_m$predclass, lc3_m$posterior))
+
+Average.posteriors.lc3m<-(aggregate(Males.3[,2:4], list(Males.3$V1), mean))
+colnames(Average.posteriors.lc3m)<-c("Class", "Class 1", "Class 2", "Class 3")
+print(Average.posteriors.lc3m)
+write.csv(Average.posteriors.lc3m, file = "Average_posteriors_3_classes_males.csv", col.names=T, row.names=T)
+
+
+```
+
+
+```{r results='posteriors_m4'}
+
+Males.4<-as.data.frame(cbind(lc4_m$predclass, lc4_m$posterior))
+Average.posteriors.lc4m<-(aggregate(Males.4[,2:5], list(Males.4$V1), mean))
+colnames(Average.posteriors.lc4m)<-c("Class", "Class 1", "Class 2", "Class 3", "Class 4")
+print(Average.posteriors.lc4m)
+write.csv(Average.posteriors.lc4m, file = "Average_posteriors_4_classes_males.csv", col.names=T, row.names=T)
+
+```
+Graphs were also scrutinised for most plausible results:
+
+```{r, lca_m_plots}
+
+
+######Graph to display results for 4 class solution
+
+lcmodel <- reshape2::melt(lc4_m$probs, level=2)
+zp1_m <- ggplot(lcmodel,aes(x = L2, y = value, fill = Var2))
+zp1_m <- zp1_m + geom_bar(stat = "identity", position = "stack")
+zp1_m <- zp1_m + facet_grid(Var1 ~ .) 
+zp1_m <- zp1_m + scale_fill_brewer(type="seq", palette="Greys") +theme_bw()
+zp1_m <- zp1_m + labs(x = "Items",y="Classes", fill ="Class-predicted probabilities")
+zp1_m <- zp1_m + theme( axis.text.y=element_blank(),
+                    axis.ticks.y=element_blank(),                    
+                    panel.grid.major.y=element_blank())
+zp1_m <- zp1_m + guides(fill = guide_legend(reverse=TRUE))
+zp1_m<- zp1_m + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+zp1_m<- zp1_m + theme(text = element_text(family = "serif"))
+zp1_m<- zp1_m + scale_x_discrete(name ="Items", labels=c("Physically violent crime","Emotional childhood abuse","Emotional childhood neglect", "Experienced war", "Financial insecurity", "Physical childhood abuse", "Physical childhood neglect", "Physical IPV", "Psychological IPV", "Relationship insecurity", "Serious accident", "Serious illness", "Sexual childhood abuse", "Sexual IPV", "Sexual violence ever", "Witness death"))
+print(zp1_m)
+
+
+ggsave(
+  "4 class solution Males FS.png",
+  zp1_m,
+  width = 6,
+  height = 5,
+  dpi = 1200
+)
+
+print(zp1_m)
+
+table.lc4_m<-dcast(lcmodel, Var1 + Var2 ~ L2)
+colnames(table.lc4_m)<- c("Class", "Probability", "Physically violent crime","Emotional childhood abuse","Emotional childhood neglect", "Experienced war", "Financial insecurity", "Physical childhood abuse", "Physical childhood neglect", "Physical IPV", "Psychological IPV", "Relationship insecurity", "Serious accident", "Serious illness", "Sexual childhood abuse", "Sexual IPV", "Sexual violence ever", "Witness death")
+write.csv(table.lc4_m, file="Results_4_m.csv", row.names=F)
+
+###############Graph for 3 class solution
+
+lcmodel <- reshape2::melt(lc3_m$probs, level=2)
+zp2_m <- ggplot(lcmodel,aes(x = L2, y = value, fill = Var2))
+zp2_m <- zp2_m + geom_bar(stat = "identity", position = "stack")
+zp2_m <- zp2_m + facet_grid(Var1 ~ .) 
+zp2_m <- zp2_m + scale_fill_brewer(type="seq", palette="Greys") +theme_bw()
+zp2_m <- zp2_m + labs(x = "Items",y="Classes", fill ="Class-predicted probabilities")
+zp2_m <- zp2_m + theme( axis.text.y=element_blank(),
+                    axis.ticks.y=element_blank(),                    
+                    panel.grid.major.y=element_blank())
+zp2_m <- zp2_m + guides(fill = guide_legend(reverse=TRUE))
+zp2_m <- zp2_m + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+zp2_m <- zp2_m + theme(text = element_text(family = "serif"))
+zp2_m <- zp2_m + scale_x_discrete(name ="Items", labels=c("Physically violent crime","Emotional childhood abuse","Emotional childhood neglect", "Experienced war", "Financial insecurity", "Physical childhood abuse", "Physical childhood neglect", "Physical IPV", "Psychological IPV", "Relationship insecurity", "Serious accident", "Serious illness", "Sexual childhood abuse", "Sexual IPV", "Sexual violence ever", "Witness death"))
+
+print(zp2_m)
+
+ggsave(
+  "3 class solution Males FS.png",
+  zp2_m,
+  width = 6,
+  height = 5,
+  dpi = 1200
+)
+
+print(zp2_m)
+print(zp2_m$P)
+
+
+table.lc3_m<-dcast(lcmodel, Var1 + Var2 ~ L2)
+colnames(table.lc3_m)<- c("Class", "Probability", "Physically violent crime","Emotional childhood abuse","Emotional childhood neglect", "Experienced war", "Financial insecurity", "Physical childhood abuse", "Physical childhood neglect", "Physical IPV", "Psychological IPV", "Relationship insecurity", "Serious accident", "Serious illness", "Sexual childhood abuse", "Sexual IPV", "Sexual violence ever", "Witness death")
+write.csv(table.lc3_m, file="Results_3_m.csv", row.names=F)
+
+#### Obtaining class proportions and N
+
+lc3_m$P
+table(lc3_m$predclass)
+
+```
+
+
+##8. LCA in women
+
+Again. To prepare the data:
+
+```{r, lca_f}
+
+#Prepare data for LCA
+
+###Data
+
+LCAdata_Female <- Current.sample_Female %>% dplyr::select(Emotional.childhood.neglect, Physical.childhood.abuse, Emotional.childhood.abuse, Sexual.childhood.abuse, Physical.childhood.neglect, Relationship.security, Physical.IPV, Psychological.IPV, Sexual.IPV, Financial.security, Serious.accident, Witness.death, Serious.illness, Experienced.war, Sexual.Violence.LCA, Community.Violence.LCA)
+
+###Formula
+
+LCA.test_Female<-with(LCAdata_Female, cbind(Emotional.childhood.neglect, Physical.childhood.abuse, Emotional.childhood.abuse, Sexual.childhood.abuse, Physical.childhood.neglect, Relationship.security, Physical.IPV, Psychological.IPV, Sexual.IPV, Financial.security, Serious.accident, Witness.death, Serious.illness, Experienced.war, Sexual.Violence.LCA, Community.Violence.LCA)~1)
+
+```
+
+To compare the models:
+
+```{r, lca_f_analysis}
+
+####Comparing preliminary models
+
+lc1_f<-poLCA(LCA.test_Female, data=LCAdata_Female, nclass=1, na.rm = FALSE, nrep=30, maxiter=3000, tol=1e-5) 
+lc2_f<-poLCA(LCA.test_Female, data=LCAdata_Female, nclass=2, na.rm = FALSE, nrep=30, maxiter=3000, tol=1e-5)
+lc3_f<-poLCA(LCA.test_Female, data=LCAdata_Female, nclass=3, na.rm = FALSE, nrep=30, maxiter=3000, tol=1e-5)
+lc4_f<-poLCA(LCA.test_Female, data=LCAdata_Female, nclass=4, na.rm = FALSE, nrep=30, maxiter=3000, tol=1e-5) 
+lc5_f<-poLCA(LCA.test_Female, data=LCAdata_Female, nclass=5, na.rm = FALSE, nrep=30, maxiter=3000, tol=1e-5)
+lc6_f<-poLCA(LCA.test_Female, data=LCAdata_Female, nclass=6, na.rm = FALSE, nrep=30, maxiter=3000, tol=1e-5)
+
+```
+
+Table to display results of LCA in females:
+
+```{r, lca_f_table}
+
+results <- data.frame(Modell=c("Modell 1"),
+                      log_likelihood=lc1_f$llik,
+                      df = lc1_f$resid.df,
+                      BIC=lc1_f$bic,
+                      ABIC=  (-2*lc1_f$llik) + ((log((lc1_f$N + 2)/24)) * lc1_f$npar),
+                      CAIC = (-2*lc1_f$llik) + lc1_f$npar * (1 + log(lc1_f$N)), 
+                      likelihood_ratio=lc1_f$Gsq)
+results$Modell<-as.integer(results$Modell)
+results[1,1]<-c("Modell 1")
+results[2,1]<-c("Modell 2")
+results[3,1]<-c("Modell 3")
+results[4,1]<-c("Modell 4")
+results[5,1]<-c("Modell 5")
+results[6,1]<-c("Modell 6")
+
+results[2,2]<-lc2_f$llik
+results[3,2]<-lc3_f$llik
+results[4,2]<-lc4_f$llik
+results[5,2]<-lc5_f$llik
+results[6,2]<-lc6_f$llik
+
+results[2,3]<-lc2_f$resid.df
+results[3,3]<-lc3_f$resid.df
+results[4,3]<-lc4_f$resid.df
+results[5,3]<-lc5_f$resid.df
+results[6,3]<-lc6_f$resid.df
+
+results[2,4]<-lc2_f$bic
+results[3,4]<-lc3_f$bic
+results[4,4]<-lc4_f$bic
+results[5,4]<-lc5_f$bic
+results[6,4]<-lc6_f$bic
+
+results[2,5]<-(-2*lc2_f$llik) + ((log((lc2_f$N + 2)/24)) * lc2_f$npar) #abic
+results[3,5]<-(-2*lc3_f$llik) + ((log((lc3_f$N + 2)/24)) * lc3_f$npar)
+results[4,5]<-(-2*lc4_f$llik) + ((log((lc4_f$N + 2)/24)) * lc4_f$npar)
+results[5,5]<-(-2*lc5_f$llik) + ((log((lc5_f$N + 2)/24)) * lc5_f$npar)
+results[6,5]<-(-2*lc6_f$llik) + ((log((lc6_f$N + 2)/24)) * lc6_f$npar)
+
+results[2,6]<- (-2*lc2_f$llik) + lc2_f$npar * (1 + log(lc2_f$N)) #caic
+results[3,6]<- (-2*lc3_f$llik) + lc3_f$npar * (1 + log(lc3_f$N))
+results[4,6]<- (-2*lc4_f$llik) + lc4_f$npar * (1 + log(lc4_f$N))
+results[5,6]<- (-2*lc5_f$llik) + lc5_f$npar * (1 + log(lc5_f$N))
+results[6,6]<- (-2*lc6_f$llik) + lc6_f$npar * (1 + log(lc6_f$N))
+
+results[2,7]<-lc2_f$Gsq
+results[3,7]<-lc3_f$Gsq
+results[4,7]<-lc4_f$Gsq
+results[5,7]<-lc5_f$Gsq
+results[6,7]<-lc6_f$Gsq
+
+####Adding entropy to the results
+
+entropy<-function (p) sum(-p*log(p))
+
+results$R2_entropy
+results[1,8]<-c("-")
+
+error_prior<-entropy(lc2_f$P) # class proportions model 2
+error_post<-mean(apply(lc2_f$posterior,1, entropy),na.rm = TRUE)
+results[2,8]<-round(((error_prior-error_post) / error_prior),3)
+
+error_prior<-entropy(lc3_f$P) # class proportions model 3
+error_post<-mean(apply(lc3_f$posterior,1, entropy),na.rm = TRUE)
+results[3,8]<-round(((error_prior-error_post) / error_prior),3)
+
+error_prior<-entropy(lc4_f$P) # class proportions model 4
+error_post<-mean(apply(lc4_f$posterior,1, entropy),na.rm = TRUE)
+results[4,8]<-round(((error_prior-error_post) / error_prior),3)
+
+error_prior<-entropy(lc5_f$P) # class proportions model 5
+error_post<-mean(apply(lc5_f$posterior,1, entropy),na.rm = TRUE)
+results[5,8]<-round(((error_prior-error_post) / error_prior),3)
+
+error_prior<-entropy(lc6_f$P) # class proportions model 6
+error_post<-mean(apply(lc6_f$posterior,1, entropy),na.rm = TRUE)
+results[6,8]<-round(((error_prior-error_post) / error_prior),3)
+
+# combining results to a dataframe
+colnames(results)<-c("Model","log-likelihood","resid. df","BIC","aBIC","cAIC","likelihood-ratio","Entropy")
+lca_results_f<-results
+
+######Display results
+
+ztable::ztable(lca_results_f)
+```
+
+```{r results='asis'}
+ztable(lca_results_f)
+```
+
+```{r results='posteriors_f5'}
+
+Females.5<-as.data.frame(cbind(lc5_f$predclass, lc5_f$posterior))
+
+Average.posteriors.lc5f<-(aggregate(Females.5[,2:6], list(Females.5$V1), mean))
+colnames(Average.posteriors.lc5f)<-c("Class", "Class 1", "Class 2", "Class 3", "Class 4", "Class 5")
+print(Average.posteriors.lc5f)
+
+write.csv(Average.posteriors.lc5f, file = "Average_posteriors_5_classes_females.csv", col.names=T, row.names=T)
+
+```
+
+
+```{r results='posteriors_f4'}
+
+Females.4<-as.data.frame(cbind(lc4_f$predclass, lc4_f$posterior))
+
+Average.posteriors.lc4f<-(aggregate(Females.4[,2:5], list(Females.4$V1), mean))
+colnames(Average.posteriors.lc4f)<-c("Class", "Class 1", "Class 2", "Class 3", "Class 4")
+print(Average.posteriors.lc4f)
+
+write.csv(Average.posteriors.lc4f, file = "Average_posteriors_4_classes_females.csv", col.names=T, row.names=T)
+
+```
+
+Graphs were scrutinised for most promising solutions:
+
+```{r, lca_f_plots}
+
+######Graph to display results for 4 class solution
+
+lcmodel <- reshape2::melt(lc4_f$probs, level=2)
+zp2_f <- ggplot(lcmodel,aes(x = L2, y = value, fill = Var2))
+zp2_f <- zp2_f + geom_bar(stat = "identity", position = "stack")
+zp2_f <- zp2_f + facet_grid(Var1 ~ .) 
+zp2_f <- zp2_f + scale_fill_brewer(type="seq", palette="Greys") +theme_bw()
+zp2_f <- zp2_f + labs(x = "Items",y="Classes", fill ="Class-predicted probabilities")
+zp2_f <- zp2_f + theme( axis.text.y=element_blank(),
+                    axis.ticks.y=element_blank(),                    
+                    panel.grid.major.y=element_blank())
+zp2_f <- zp2_f + guides(fill = guide_legend(reverse=TRUE))
+zp2_f<- zp2_f + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+zp2_f<- zp2_f + theme(text = element_text(family = "serif"))
+print(zp2_f)
+
+ggsave(
+  "4 class solution Females FS.png",
+  zp2_f,
+  width = 6,
+  height = 5,
+  dpi = 1200
+)
+
+print(zp2_f)
+zp2_f<- zp2_f + scale_x_discrete(name ="Items", labels=c("Physically violent crime","Emotional childhood abuse","Emotional childhood neglect", "Experienced war", "Financial security", "Physical childhood abuse", "Physical childhood neglect", "Physical IPV", "Psychological IPV", "Relationship insecurity", "Serious accident", "Serious illness", "Sexual childhood abuse", "Sexual IPV", "Sexual violence ever", "Witness death"))
+print(zp2_f)
+
+table.lc4_f<-dcast(lcmodel, Var1 + Var2 ~ L2)
+colnames(table.lc4_f)<- c("Class", "Probability", "Physically violent crime","Emotional childhood abuse","Emotional childhood neglect", "Experienced war", "Financial insecurity", "Physical childhood abuse", "Physical childhood neglect", "Physical IPV", "Psychological IPV", "Relationship insecurity", "Serious accident", "Serious illness", "Sexual childhood abuse", "Sexual IPV", "Sexual violence ever", "Witness death")
+write.csv(table.lc4_f, file="Results_4_f.csv", row.names=F)
+
+######Graph to display results for 5 class solution
+
+lcmodel <- reshape2::melt(lc5_f$probs, level=2)
+
+zp1_f <- ggplot(lcmodel,aes(x = L2, y = value, fill = Var2))
+zp1_f <- zp1_f + geom_bar(stat = "identity", position = "stack")
+zp1_f <- zp1_f + facet_grid(Var1 ~ .) 
+zp1_f <- zp1_f + scale_fill_brewer(type="seq", palette="Greys") +theme_bw()
+zp1_f <- zp1_f + labs(x = "Items",y="Classes", fill ="Class-predicted probabilities")
+zp1_f <- zp1_f + theme( axis.text.y=element_blank(),
+                    axis.ticks.y=element_blank(),                    
+                    panel.grid.major.y=element_blank())
+zp1_f <- zp1_f + guides(fill = guide_legend(reverse=TRUE))
+zp1_f<- zp1_f + theme(axis.text.x = element_text(family = "serif", angle = 90, hjust = 1))
+zp1_f<- zp1_f + theme(text = element_text(family = "serif"))
+zp1_f<- zp1_f + scale_x_discrete(name ="Items", labels=c("Physically violent crime","Emotional childhood abuse","Emotional childhood neglect", "Experienced war", "Financial security", "Physical childhood abuse", "Physical childhood neglect", "Physical IPV", "Psychological IPV", "Relationship insecurity", "Serious accident", "Serious illness", "Sexual childhood abuse", "Sexual IPV", "Sexual violence ever", "Witness death"))
+print(zp1_f)
+
+
+ggsave(
+  "5 class solution Females FS.png",
+  zp1_f,
+  width = 6,
+  height = 5,
+  dpi = 1200
+)
+
+print(zp1_f)
+print(zp1_f$P)
+
+table.lc5_f<-dcast(lcmodel, Var1 + Var2 ~ L2)
+colnames(table.lc5_f)<- c("Class", "Probability", "Physically violent crime","Emotional childhood abuse","Emotional childhood neglect", "Experienced war", "Financial insecurity", "Physical childhood abuse", "Physical childhood neglect", "Physical IPV", "Psychological IPV", "Relationship insecurity", "Serious accident", "Serious illness", "Sexual childhood abuse", "Sexual IPV", "Sexual violence ever", "Witness death")
+write.csv(table.lc5_f, file="Results_5_f.csv", row.names=F)
+
+##Class proportions and N
+
+lc5_f$P
+table(lc5_f$predclass)
+
+```
+
+
+#9. Changing class order
+
+```{r, Changing class order so low trauma is class 1}
+
+####Changing class order males to put low risk first - poLCA output differently ordered every time it is run, so inspection of above graphs is required before running code below; whichever class no the low risk class is will then be put first in the poLCA.reorder command. In this example: 3.
+
+lc3_m<-poLCA(LCA.test_Male, data=LCAdata_Male, nclass=3, na.rm = FALSE, nrep=30, maxiter=3000, tol=1e-5)
+probs.start<-lc3_m$probs.start
+new.probs.start<-poLCA.reorder(probs.start, c(3,1,2))
+lc3_m<-poLCA(LCA.test_Male, data=LCAdata_Male, nclass=3, na.rm = FALSE, nrep=30, maxiter=3000, tol=1e-5, probs.start=new.probs.start)
+
+lcmodel <- reshape2::melt(lc3_m$probs, level=2)
+zp2_m <- ggplot(lcmodel,aes(x = L2, y = value, fill = Var2))
+zp2_m <- zp2_m + geom_bar(stat = "identity", position = "stack")
+zp2_m <- zp2_m + facet_grid(Var1 ~ .) 
+zp2_m <- zp2_m + scale_fill_brewer(type="seq", palette="Greys") +theme_bw()
+zp2_m <- zp2_m + labs(x = "Items",y="Classes", fill ="Class-predicted probabilities")
+zp2_m <- zp2_m + theme( axis.text.y=element_blank(),
+                    axis.ticks.y=element_blank(),                    
+                    panel.grid.major.y=element_blank())
+zp2_m <- zp2_m + guides(fill = guide_legend(reverse=TRUE))
+zp2_m <- zp2_m + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+zp2_m <- zp2_m + theme(text = element_text(family = "serif"))
+zp2_m <- zp2_m + scale_x_discrete(name ="Items", labels=c("Physically violent crime","Emotional childhood abuse","Emotional childhood neglect", "Experienced war", "Financial insecurity", "Physical childhood abuse", "Physical childhood neglect", "Physical IPV", "Psychological IPV", "Relationship insecurity", "Serious accident", "Serious illness", "Sexual childhood abuse", "Sexual IPV", "Sexual violence ever", "Witness death"))
+
+print(zp2_m)
+
+png(filename = "3 class solution Males FS.png")
+print(zp2_m)
+dev.off()
+
+##Changing order for 4 class solution in males
+
+lc4_m<-poLCA(LCA.test_Male, data=LCAdata_Male, nclass=4, na.rm = FALSE, nrep=30, maxiter=3000, tol=1e-5)
+probs.start<-lc4_m$probs.start
+new.probs.start<-poLCA.reorder(probs.start, c(4,3,1,2))
+lc4_m<-poLCA(LCA.test_Male, data=LCAdata_Male, nclass=4, na.rm = FALSE, nrep=30, maxiter=3000, tol=1e-5, probs.start=new.probs.start)
+
+lcmodel <- reshape2::melt(lc4_m$probs, level=2)
+zp1_m <- ggplot(lcmodel,aes(x = L2, y = value, fill = Var2))
+zp1_m <- zp1_m + geom_bar(stat = "identity", position = "stack")
+zp1_m <- zp1_m + facet_grid(Var1 ~ .) 
+zp1_m <- zp1_m + scale_fill_brewer(type="seq", palette="Greys") +theme_bw()
+zp1_m <- zp1_m + labs(x = "Items",y="Classes", fill ="Class-predicted probabilities")
+zp1_m <- zp1_m + theme( axis.text.y=element_blank(),
+                    axis.ticks.y=element_blank(),                    
+                    panel.grid.major.y=element_blank())
+zp1_m <- zp1_m + guides(fill = guide_legend(reverse=TRUE))
+zp1_m<- zp1_m + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+zp1_m<- zp1_m + theme(text = element_text(family = "serif"))
+zp1_m<- zp1_m + scale_x_discrete(name ="Items", labels=c("Physically violent crime","Emotional childhood abuse","Emotional childhood neglect", "Experienced war", "Financial insecurity", "Physical childhood abuse", "Physical childhood neglect", "Physical IPV", "Psychological IPV", "Relationship insecurity", "Serious accident", "Serious illness", "Sexual childhood abuse", "Sexual IPV", "Sexual violence ever", "Witness death"))
+print(zp1_m)
+
+png(filename = "4 class solution Males FS.png")
+print(zp1_m)
+dev.off()
+
+print(zp1_m)
+
+####Changing class order females to put low risk first in diagram - poLCA output differently ordered every time it is run, so inspection of graphs is required before running code below; whichever class no the low risk class is will then be put first in the poLCA.reorder command. In this example: 2.
+
+probs.start<-lc5_f$probs.start
+new.probs.start<-poLCA.reorder(probs.start, c(2,4,1,5,3))
+lc5_f<-poLCA(LCA.test_Female, data=LCAdata_Female, nclass=5, na.rm = FALSE, nrep=30, maxiter=3000, tol=1e-5, probs.start=new.probs.start)
+
+
+lcmodel <- reshape2::melt(lc5_f$probs, level=2)
+
+zp1_f <- ggplot(lcmodel,aes(x = L2, y = value, fill = Var2))
+zp1_f <- zp1_f + geom_bar(stat = "identity", position = "stack")
+zp1_f <- zp1_f + facet_grid(Var1 ~ .) 
+zp1_f <- zp1_f + scale_fill_brewer(type="seq", palette="Greys") +theme_bw()
+zp1_f <- zp1_f + labs(x = "Items",y="Classes", fill ="Class-predicted probabilities")
+zp1_f <- zp1_f + theme( axis.text.y=element_blank(),
+                    axis.ticks.y=element_blank(),                    
+                    panel.grid.major.y=element_blank())
+zp1_f <- zp1_f + guides(fill = guide_legend(reverse=TRUE))
+zp1_f<- zp1_f + theme(axis.text.x = element_text(family = "serif", angle = 90, hjust = 1))
+zp1_f<- zp1_f + theme(text = element_text(family = "serif"))
+zp1_f<- zp1_f + scale_x_discrete(name ="Items", labels=c("Physically violent crime","Emotional childhood abuse","Emotional childhood neglect", "Experienced war", "Financial security", "Physical childhood abuse", "Physical childhood neglect", "Physical IPV", "Psychological IPV", "Relationship insecurity", "Serious accident", "Serious illness", "Sexual childhood abuse", "Sexual IPV", "Sexual violence ever", "Witness death"))
+print(zp1_f)
+
+png(filename = "5 class solution Females FS.png")
+print(zp1_f)
+dev.off()
+
+###4 class solution females - recoded
+
+
+probs.start<-lc4_f$probs.start
+new.probs.start<-poLCA.reorder(probs.start, c(2,4,3,1))
+lc4_f<-poLCA(LCA.test_Female, data=LCAdata_Female, nclass=4, na.rm = FALSE, nrep=30, maxiter=3000, tol=1e-5, probs.start=new.probs.start)
+
+
+lcmodel <- reshape2::melt(lc4_f$probs, level=2)
+
+zp1_f <- ggplot(lcmodel,aes(x = L2, y = value, fill = Var2))
+zp1_f <- zp1_f + geom_bar(stat = "identity", position = "stack")
+zp1_f <- zp1_f + facet_grid(Var1 ~ .) 
+zp1_f <- zp1_f + scale_fill_brewer(type="seq", palette="Greys") +theme_bw()
+zp1_f <- zp1_f + labs(x = "Items",y="Classes", fill ="Class-predicted probabilities")
+zp1_f <- zp1_f + theme( axis.text.y=element_blank(),
+                    axis.ticks.y=element_blank(),                    
+                    panel.grid.major.y=element_blank())
+zp1_f <- zp1_f + guides(fill = guide_legend(reverse=TRUE))
+zp1_f<- zp1_f + theme(axis.text.x = element_text(family = "serif", angle = 90, hjust = 1))
+zp1_f<- zp1_f + theme(text = element_text(family = "serif"))
+zp1_f<- zp1_f + scale_x_discrete(name ="Items", labels=c("Physically violent crime","Emotional childhood abuse","Emotional childhood neglect", "Experienced war", "Financial security", "Physical childhood abuse", "Physical childhood neglect", "Physical IPV", "Psychological IPV", "Relationship insecurity", "Serious accident", "Serious illness", "Sexual childhood abuse", "Sexual IPV", "Sexual violence ever", "Witness death"))
+print(zp1_f)
+
+png(filename = "4 class solution Females FS.png")
+print(zp1_f)
+dev.off()
+
+```
+
+##10. Regressions: females
+
+```{r, Regression analysis females}
+
+#Females: reordering classes (poLCA output is ordered differently every time - inspection of graphs required to alter coding below)
+
+Class.f.p<-lc5_f$predclass
+
+Current.sample.f<-cbind(Current.sample_Female, Class.f.p)
+
+Current.sample.f$Class.SV<-with(Current.sample.f, ifelse(Class.f.p==2, 1, ifelse(Class.f.p==1, 0, NA)))
+
+Current.sample.f$Class.CA<-with(Current.sample.f, ifelse(Class.f.p==4, 1, ifelse(Class.f.p==1, 0, NA)))
+
+Current.sample.f$Class.HR<-with(Current.sample.f, ifelse(Class.f.p==5, 1, ifelse(Class.f.p==1, 0, NA)))
+
+Current.sample.f$Class.IPV<-with(Current.sample.f, ifelse(Class.f.p==3, 1, ifelse(Class.f.p==1, 0, NA)))
+
+#Depression
+
+Depression.females.unadj.sv <- (glm(Depressed.Current ~ Class.SV, family="binomial", na.action=na.exclude, data=Current.sample.f))
+Depression.females.unadj.ipv <- (glm(Depressed.Current ~ Class.IPV, family="binomial", na.action=na.exclude,data=Current.sample.f))
+Depression.females.unadj.ca <- (glm(Depressed.Current ~ Class.CA, family="binomial", na.action=na.exclude, data=Current.sample.f))
+Depression.females.unadj.hr <- (glm(Depressed.Current ~ Class.HR, family="binomial", na.action=na.exclude, data=Current.sample.f))
+
+
+Depression.females.adj.sv <- (glm(Depressed.Current ~ Class.SV + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", na.action=na.exclude, data=Current.sample.f))
+Depression.females.adj.ipv <- (glm(Depressed.Current ~ Class.IPV + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", na.action=na.exclude, data=Current.sample.f))
+Depression.females.adj.ca <- (glm(Depressed.Current ~ Class.CA + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", na.action=na.exclude, data=Current.sample.f))
+Depression.females.adj.hr <- (glm(Depressed.Current ~ Class.HR + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", na.action=na.exclude, data=Current.sample.f))
+
+##Unadjusted ORs
+
+Depression.females.or.unadj <- rbind(exp(coef(Depression.females.unadj.sv)[2]), exp(coef(Depression.females.unadj.ipv)[2]), exp(coef(Depression.females.unadj.ca)[2]), exp(coef(Depression.females.unadj.hr)[2]))
+Depression.females.ci.unadj <- rbind(exp(confint(Depression.females.unadj.sv)), exp(confint(Depression.females.unadj.ipv)), exp(confint(Depression.females.unadj.ca)), exp(confint(Depression.females.unadj.hr)))
+
+Depression.females.ci.classes.unadj <-Depression.females.ci.unadj[grepl("Class", rownames(Depression.females.ci.unadj)),]
+Depression.females.unadj<- cbind(Depression.females.or.unadj , Depression.females.ci.classes.unadj )
+colnames(Depression.females.unadj) <- c("Unadjusted OR", "Lower CI", "Upper CI")
+rownames(Depression.females.unadj) < c("SV", "IPV", "CA", "HR")
+
+##Adjusted ORs
+
+Depression.females.or <- rbind(exp(coef(Depression.females.adj.sv)[2]), exp(coef(Depression.females.adj.ipv)[2]), exp(coef(Depression.females.adj.ca)[2]), exp(coef(Depression.females.adj.hr)[2]))
+Depression.females.ci <- rbind(exp(confint(Depression.females.adj.sv)), exp(confint(Depression.females.adj.ipv)), exp(confint(Depression.females.adj.ca)), exp(confint(Depression.females.adj.hr)))
+
+Depression.females.ci.classes <-Depression.females.ci[grepl("Class", rownames(Depression.females.ci)),]
+Depression.females.adj<- cbind(Depression.females.or , Depression.females.ci.classes )
+colnames(Depression.females.adj) <- c("Adjusted OR", "Lower CI", "Upper CI")
+rownames(Depression.females.adj) < c("SV", "IPV", "CA", "HR")
+
+#Anxiety
+
+Anxiety.females.unadj.sv <- (glm(GAD.Current ~ Class.SV, family="binomial", na.action=na.exclude, data=Current.sample.f))
+Anxiety.females.unadj.ipv <- (glm(GAD.Current ~ Class.IPV, family="binomial", na.action=na.exclude, data=Current.sample.f))
+Anxiety.females.unadj.ca <- (glm(GAD.Current ~ Class.CA, family="binomial", na.action=na.exclude, data=Current.sample.f))
+Anxiety.females.unadj.hr <- (glm(GAD.Current ~ Class.HR, family="binomial", na.action=na.exclude, data=Current.sample.f))
+
+Anxiety.females.adj.sv <- (glm(GAD.Current ~ Class.SV + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", na.action=na.exclude, data=Current.sample.f))
+Anxiety.females.adj.ipv <- (glm(GAD.Current ~ Class.IPV + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", na.action=na.exclude, data=Current.sample.f))
+Anxiety.females.adj.ca <- (glm(GAD.Current ~ Class.CA + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", na.action=na.exclude, data=Current.sample.f))
+Anxiety.females.adj.hr <- (glm(GAD.Current ~ Class.HR + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", na.action=na.exclude, data=Current.sample.f))
+
+##Unadjusted ORs
+
+Anxiety.females.or.unadj <- rbind(exp(coef(Anxiety.females.unadj.sv)[2]), exp(coef(Anxiety.females.unadj.ipv)[2]), exp(coef(Anxiety.females.unadj.ca)[2]), exp(coef(Anxiety.females.unadj.hr)[2]))
+Anxiety.females.ci.unadj <- rbind(exp(confint(Anxiety.females.unadj.sv)), exp(confint(Anxiety.females.unadj.ipv)), exp(confint(Anxiety.females.unadj.ca)), exp(confint(Anxiety.females.unadj.hr)))
+
+Anxiety.females.ci.classes.unadj <-Anxiety.females.ci.unadj[grepl("Class", rownames(Anxiety.females.ci.unadj)),]
+Anxiety.females.unadj<- cbind(Anxiety.females.or.unadj , Anxiety.females.ci.classes.unadj )
+colnames(Anxiety.females.unadj) <- c("Unadjusted OR", "Lower CI", "Upper CI")
+rownames(Anxiety.females.unadj) < c("SV", "IPV", "CA", "HR")
+
+##Adjusted ORs
+
+Anxiety.females.or <- rbind(exp(coef(Anxiety.females.adj.sv)[2]), exp(coef(Anxiety.females.adj.ipv)[2]), exp(coef(Anxiety.females.adj.ca)[2]), exp(coef(Anxiety.females.adj.hr)[2]))
+Anxiety.females.ci <- rbind(exp(confint(Anxiety.females.adj.sv)), exp(confint(Anxiety.females.adj.ipv)), exp(confint(Anxiety.females.adj.ca)), exp(confint(Anxiety.females.adj.hr)))
+
+Anxiety.females.ci.classes <-Anxiety.females.ci[grepl("Class", rownames(Anxiety.females.ci)),]
+Anxiety.females.adj<- cbind(Anxiety.females.or , Anxiety.females.ci.classes )
+colnames(Anxiety.females.adj) <- c("Undjusted OR", "Lower CI", "Upper CI")
+rownames(Anxiety.females.adj) < c("SV", "IPV", "CA", "HR")
+
+#Alcohol 
+
+Alcohol.females.unadj.sv <- (glm(Alcohol.Use.Disorder ~ Class.SV, family="binomial", na.action=na.exclude, data=Current.sample.f))
+Alcohol.females.unadj.ipv <- (glm(Alcohol.Use.Disorder ~ Class.IPV, family="binomial", na.action=na.exclude, data=Current.sample.f))
+Alcohol.females.unadj.ca <- (glm(Alcohol.Use.Disorder ~ Class.CA, family="binomial", na.action=na.exclude, data=Current.sample.f))
+Alcohol.females.unadj.hr <- (glm(Alcohol.Use.Disorder ~ Class.HR, family="binomial", na.action=na.exclude, data=Current.sample.f))
+
+Alcohol.females.adj.sv <- (glm(Alcohol.Use.Disorder ~ Class.SV + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", na.action=na.exclude, data=Current.sample.f))
+Alcohol.females.adj.ipv <- (glm(Alcohol.Use.Disorder ~ Class.IPV + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", na.action=na.exclude, data=Current.sample.f))
+Alcohol.females.adj.ca <- (glm(Alcohol.Use.Disorder ~ Class.CA + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", na.action=na.exclude, data=Current.sample.f))
+Alcohol.females.adj.hr <- (glm(Alcohol.Use.Disorder ~ Class.HR + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", na.action=na.exclude, data=Current.sample.f))
+
+##Unadjusted ORs
+
+Alcohol.females.or.unadj <- rbind(exp(coef(Alcohol.females.unadj.sv)[2]), exp(coef(Alcohol.females.unadj.ipv)[2]), exp(coef(Alcohol.females.unadj.ca)[2]), exp(coef(Alcohol.females.unadj.hr)[2]))
+Alcohol.females.ci.unadj <- rbind(exp(confint(Alcohol.females.unadj.sv)), exp(confint(Alcohol.females.unadj.ipv)), exp(confint(Alcohol.females.unadj.ca)), exp(confint(Alcohol.females.unadj.hr)))
+
+Alcohol.females.ci.classes.unadj <-Alcohol.females.ci.unadj[grepl("Class", rownames(Alcohol.females.ci.unadj)),]
+Alcohol.females.unadj<- cbind(Alcohol.females.or.unadj , Alcohol.females.ci.classes.unadj )
+colnames(Alcohol.females.unadj) <- c("Unadjusted OR", "Lower CI", "Upper CI")
+rownames(Alcohol.females.unadj) < c("SV", "IPV", "CA", "HR")
+
+##Adjusted ORs
+
+Alcohol.females.or <- rbind(exp(coef(Alcohol.females.adj.sv)[2]), exp(coef(Alcohol.females.adj.ipv)[2]), exp(coef(Alcohol.females.adj.ca)[2]), exp(coef(Alcohol.females.adj.hr)[2]))
+Alcohol.females.ci <- rbind(exp(confint(Alcohol.females.adj.sv)), exp(confint(Alcohol.females.adj.ipv)), exp(confint(Alcohol.females.adj.ca)), exp(confint(Alcohol.females.adj.hr)))
+
+Alcohol.females.ci.classes <-Alcohol.females.ci[grepl("Class", rownames(Alcohol.females.ci)),]
+Alcohol.females.adj<- cbind(Alcohol.females.or , Alcohol.females.ci.classes )
+colnames(Alcohol.females.adj) <- c("Adjusted OR", "Lower CI", "Upper CI")
+rownames(Alcohol.females.adj) < c("SV", "IPV", "CA", "HR")
+
+#Psychosis 
+
+Psychosis.females.unadj.sv <- (glm(Unusual.Experience.Recent ~ Class.SV, family="binomial", na.action=na.exclude, data=Current.sample.f))
+Psychosis.females.unadj.ipv <- (glm(Unusual.Experience.Recent ~ Class.IPV, family="binomial", na.action=na.exclude, data=Current.sample.f))
+Psychosis.females.unadj.ca <- (glm(Unusual.Experience.Recent ~ Class.CA, family="binomial", na.action=na.exclude, data=Current.sample.f))
+Psychosis.females.unadj.hr <- (glm(Unusual.Experience.Recent ~ Class.HR, family="binomial", na.action=na.exclude, data=Current.sample.f))
+
+Psychosis.females.adj.sv <- (glm(Unusual.Experience.Recent ~ Class.SV + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", na.action=na.exclude, data=Current.sample.f))
+Psychosis.females.adj.ipv <- (glm(Unusual.Experience.Recent ~ Class.IPV + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", na.action=na.exclude, data=Current.sample.f))
+Psychosis.females.adj.ca <- (glm(Unusual.Experience.Recent ~ Class.CA + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", na.action=na.exclude, data=Current.sample.f))
+Psychosis.females.adj.hr <- (glm(Unusual.Experience.Recent ~ Class.HR + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", na.action=na.exclude, data=Current.sample.f))
+
+##Unadjusted ORs
+
+Psychosis.females.or.unadj <- rbind(exp(coef(Psychosis.females.unadj.sv)[2]), exp(coef(Psychosis.females.unadj.ipv)[2]), exp(coef(Psychosis.females.unadj.ca)[2]), exp(coef(Psychosis.females.unadj.hr)[2]))
+Psychosis.females.ci.unadj <- rbind(exp(confint(Psychosis.females.unadj.sv)), exp(confint(Psychosis.females.unadj.ipv)), exp(confint(Psychosis.females.unadj.ca)), exp(confint(Psychosis.females.unadj.hr)))
+
+Psychosis.females.ci.classes.unadj <-Psychosis.females.ci.unadj[grepl("Class", rownames(Psychosis.females.ci.unadj)),]
+Psychosis.females.unadj<- cbind(Psychosis.females.or.unadj , Psychosis.females.ci.classes.unadj )
+colnames(Psychosis.females.unadj) <- c("Unadjusted OR", "Lower CI", "Upper CI")
+rownames(Psychosis.females.unadj) < c("SV", "IPV", "CA", "HR")
+
+##Adjusted ORs
+
+Psychosis.females.or <- rbind(exp(coef(Psychosis.females.adj.sv)[2]), exp(coef(Psychosis.females.adj.ipv)[2]), exp(coef(Psychosis.females.adj.ca)[2]), exp(coef(Psychosis.females.adj.hr)[2]))
+Psychosis.females.ci <- rbind(exp(confint(Psychosis.females.adj.sv)), exp(confint(Psychosis.females.adj.ipv)), exp(confint(Psychosis.females.adj.ca)), exp(confint(Psychosis.females.adj.hr)))
+
+Psychosis.females.ci.classes <-Psychosis.females.ci[grepl("Class", rownames(Psychosis.females.ci)),]
+Psychosis.females.adj<- cbind(Psychosis.females.or , Psychosis.females.ci.classes )
+colnames(Psychosis.females.adj) <- c("Adjusted OR", "Lower CI", "Upper CI")
+rownames(Psychosis.females.adj) < c("SV", "IPV", "CA", "HR")
+
+##Summary depression
+
+sink("Results_depression_females.txt")
+cat("Model summaries\n")
+print(summary(Depression.females.unadj.sv))
+print(summary(Depression.females.adj.sv))
+print(summary(Depression.females.unadj.ipv))
+print(summary(Depression.females.adj.ipv))
+print(summary(Depression.females.unadj.ca))
+print(summary(Depression.females.adj.ca))
+print(summary(Depression.females.unadj.hr))
+print(summary(Depression.females.adj.hr))
+cat("Unadjusted Odds ratios\n")
+print(Depression.females.unadj)
+cat("Adjusted Odds ratios\n")
+print(Depression.females.adj)
+sink()
+
+##Summary Anxiety
+
+sink("Results_Anxiety_females.txt")
+cat("Model summaries\n")
+print(summary(Anxiety.females.unadj.sv))
+print(summary(Anxiety.females.adj.sv))
+print(summary(Anxiety.females.unadj.ipv))
+print(summary(Anxiety.females.adj.ipv))
+print(summary(Anxiety.females.unadj.ca))
+print(summary(Anxiety.females.adj.ca))
+print(summary(Anxiety.females.unadj.hr))
+print(summary(Anxiety.females.adj.hr))
+cat("Unadjusted Odds ratios\n")
+print(Anxiety.females.unadj)
+cat("Adjusted Odds ratios\n")
+print(Anxiety.females.adj)
+sink()
+
+##Summary Alcohol
+
+sink("Results_Alcohol_females.txt")
+cat("Model summaries\n")
+print(summary(Alcohol.females.unadj.sv))
+print(summary(Alcohol.females.adj.sv))
+print(summary(Alcohol.females.unadj.ipv))
+print(summary(Alcohol.females.adj.ipv))
+print(summary(Alcohol.females.unadj.ca))
+print(summary(Alcohol.females.adj.ca))
+print(summary(Alcohol.females.unadj.hr))
+print(summary(Alcohol.females.adj.hr))
+cat("Unadjusted Odds ratios\n")
+print(Alcohol.females.unadj)
+cat("Adjusted Odds ratios\n")
+print(Alcohol.females.adj)
+sink()
+
+
+##Summary Psychosis
+
+sink("Results_Psychosis_females.txt")
+cat("Model summaries\n")
+print(summary(Psychosis.females.unadj.sv))
+print(summary(Psychosis.females.adj.sv))
+print(summary(Psychosis.females.unadj.ipv))
+print(summary(Psychosis.females.adj.ipv))
+print(summary(Psychosis.females.unadj.ca))
+print(summary(Psychosis.females.adj.ca))
+print(summary(Psychosis.females.unadj.hr))
+print(summary(Psychosis.females.adj.hr))
+cat("Unadjusted Odds ratios\n")
+print(Psychosis.females.unadj)
+cat("Adjusted Odds ratios\n")
+print(Psychosis.females.adj)
+sink()
+
+
+```
+
+
+##13 Regression analysis: males
+
+```{r, Regression analysis males}
+
+#Males: reordering classes (poLCA output is ordered differently every time - inspection of graphs required to alter coding below)
+
+Class.m.p<-lc3_m$predclass
+
+Current.sample.m<-cbind(Current.sample_Male, Class.m.p)
+
+Current.sample.m$Class.Trauma.SV<-with(Current.sample.m, ifelse(Class.m.p==2, 1, ifelse(Class.m.p==1, 0, NA)))
+
+Current.sample.m$Class.Trauma<-with(Current.sample.m, ifelse(Class.m.p==3, 1, ifelse(Class.m.p==1, 0, NA)))
+
+#Depression
+
+Depression.males.unadj.t <- (glm(Depressed.Current ~ Class.Trauma, family="binomial", na.action=na.exclude, data=Current.sample.m))
+Depression.males.unadj.tsv <- (glm(Depressed.Current ~ Class.Trauma.SV, family="binomial", na.action=na.exclude, data=Current.sample.m))
+
+Depression.males.adj.t <- (glm(Depressed.Current ~ Class.Trauma + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", na.action=na.exclude, data=Current.sample.m))
+Depression.males.adj.tsv <- (glm(Depressed.Current ~ Class.Trauma.SV + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", na.action=na.exclude, data=Current.sample.m))
+
+##Unadjusted ORs
+
+Depression.males.or.unadj <- rbind(exp(coef(Depression.males.unadj.t)[2]), exp(coef(Depression.males.unadj.tsv)[2]))
+Depression.males.ci.unadj <- rbind(exp(confint(Depression.males.unadj.t)), exp(confint(Depression.males.unadj.tsv)))
+
+Depression.males.ci.classes.unadj <-Depression.males.ci.unadj[grepl("Class", rownames(Depression.males.ci.unadj)),]
+Depression.males.unadj<- cbind(Depression.males.or.unadj , Depression.males.ci.classes.unadj )
+colnames(Depression.males.unadj) <- c("Unadjusted OR", "Lower CI", "Upper CI")
+rownames(Depression.males.unadj) < c("Trauma", "Trauma.SV")
+
+##Adjusted ORs
+
+Depression.males.or.adj <- rbind(exp(coef(Depression.males.adj.t)[2]), exp(coef(Depression.males.adj.tsv)[2]))
+Depression.males.ci.adj <- rbind(exp(confint(Depression.males.adj.t)), exp(confint(Depression.males.adj.tsv)))
+
+Depression.males.ci.classes.adj <-Depression.males.ci.adj[grepl("Class", rownames(Depression.males.ci.adj)),]
+Depression.males.adj<- cbind(Depression.males.or.adj , Depression.males.ci.classes.adj )
+colnames(Depression.males.adj) <- c("Adjusted OR", "Lower CI", "Upper CI")
+rownames(Depression.males.adj) < c("Trauma", "Trauma.SV")
+
+#Anxiety
+
+Anxiety.males.unadj.t <- (glm(GAD.Current ~ Class.Trauma, family="binomial", na.action=na.exclude, data=Current.sample.m))
+Anxiety.males.unadj.tsv <- (glm(GAD.Current ~ Class.Trauma.SV, family="binomial", na.action=na.exclude, data=Current.sample.m))
+
+Anxiety.males.adj.t <- (glm(GAD.Current ~ Class.Trauma + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", na.action=na.exclude, data=Current.sample.m))
+Anxiety.males.adj.tsv <- (glm(GAD.Current ~ Class.Trauma.SV + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", na.action=na.exclude, data=Current.sample.m))
+
+##Unadjusted ORs
+
+Anxiety.males.or.unadj <- rbind(exp(coef(Anxiety.males.unadj.t)[2]), exp(coef(Anxiety.males.unadj.tsv)[2]))
+Anxiety.males.ci.unadj <- rbind(exp(confint(Anxiety.males.unadj.t)), exp(confint(Anxiety.males.unadj.tsv)))
+
+Anxiety.males.ci.classes.unadj <-Anxiety.males.ci.unadj[grepl("Class", rownames(Anxiety.males.ci.unadj)),]
+Anxiety.males.unadj<- cbind(Anxiety.males.or.unadj , Anxiety.males.ci.classes.unadj )
+colnames(Anxiety.males.unadj) <- c("Unadjusted OR", "Lower CI", "Upper CI")
+rownames(Anxiety.males.unadj) < c("Trauma", "Trauma.SV")
+
+##Adjusted ORs
+
+Anxiety.males.or.adj <- rbind(exp(coef(Anxiety.males.adj.t)[2]), exp(coef(Anxiety.males.adj.tsv)[2]))
+Anxiety.males.ci.adj <- rbind(exp(confint(Anxiety.males.adj.t)), exp(confint(Anxiety.males.adj.tsv)))
+
+Anxiety.males.ci.classes.adj <-Anxiety.males.ci.adj[grepl("Class", rownames(Anxiety.males.ci.adj)),]
+Anxiety.males.adj<- cbind(Anxiety.males.or.adj , Anxiety.males.ci.classes.adj )
+colnames(Anxiety.males.adj) <- c("Adjusted OR", "Lower CI", "Upper CI")
+rownames(Anxiety.males.adj) < c("Trauma", "Trauma.SV")
+
+#Alcohol 
+
+Alcohol.males.unadj.t <- (glm(Alcohol.Use.Disorder ~ Class.Trauma, family="binomial", na.action=na.exclude, data=Current.sample.m))
+Alcohol.males.unadj.tsv <- (glm(Alcohol.Use.Disorder ~ Class.Trauma.SV, family="binomial", na.action=na.exclude, data=Current.sample.m))
+
+Alcohol.males.adj.t <- (glm(Alcohol.Use.Disorder ~ Class.Trauma + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", na.action=na.exclude, data=Current.sample.m))
+Alcohol.males.adj.tsv <- (glm(Alcohol.Use.Disorder ~ Class.Trauma.SV + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", na.action=na.exclude, data=Current.sample.m))
+
+##Unadjusted ORs
+
+Alcohol.males.or.unadj <- rbind(exp(coef(Alcohol.males.unadj.t)[2]), exp(coef(Alcohol.males.unadj.tsv)[2]))
+Alcohol.males.ci.unadj <- rbind(exp(confint(Alcohol.males.unadj.t)), exp(confint(Alcohol.males.unadj.tsv)))
+
+Alcohol.males.ci.classes.unadj <-Alcohol.males.ci.unadj[grepl("Class", rownames(Alcohol.males.ci.unadj)),]
+Alcohol.males.unadj<- cbind(Alcohol.males.or.unadj , Alcohol.males.ci.classes.unadj )
+colnames(Alcohol.males.unadj) <- c("Unadjusted OR", "Lower CI", "Upper CI")
+rownames(Alcohol.males.unadj) < c("Trauma", "Trauma.SV")
+
+##Adjusted ORs
+
+Alcohol.males.or.adj <- rbind(exp(coef(Alcohol.males.adj.t)[2]), exp(coef(Alcohol.males.adj.tsv)[2]))
+Alcohol.males.ci.adj <- rbind(exp(confint(Alcohol.males.adj.t)), exp(confint(Alcohol.males.adj.tsv)))
+
+Alcohol.males.ci.classes.adj <-Alcohol.males.ci.adj[grepl("Class", rownames(Alcohol.males.ci.adj)),]
+Alcohol.males.adj<- cbind(Alcohol.males.or.adj , Alcohol.males.ci.classes.adj )
+colnames(Alcohol.males.adj) <- c("Adjusted OR", "Lower CI", "Upper CI")
+rownames(Alcohol.males.adj) < c("Trauma", "Trauma.SV")
+
+#Psychosis 
+
+Psychosis.males.unadj.t <- (glm(Unusual.Experience.Recent ~ Class.Trauma, family="binomial", na.action=na.exclude, data=Current.sample.m))
+Psychosis.males.unadj.tsv <- (glm(Unusual.Experience.Recent ~ Class.Trauma.SV, family="binomial", na.action=na.exclude, data=Current.sample.m))
+
+Psychosis.males.adj.t <- (glm(Unusual.Experience.Recent ~ Class.Trauma + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", na.action=na.exclude, data=Current.sample.m))
+Psychosis.males.adj.tsv <- (glm(Unusual.Experience.Recent ~ Class.Trauma.SV + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", na.action=na.exclude, data=Current.sample.m))
+
+##Unadjusted ORs
+
+Psychosis.males.or.unadj <- rbind(exp(coef(Psychosis.males.unadj.t)[2]), exp(coef(Psychosis.males.unadj.tsv)[2]))
+Psychosis.males.ci.unadj <- rbind(exp(confint(Psychosis.males.unadj.t)), exp(confint(Psychosis.males.unadj.tsv)))
+
+Psychosis.males.ci.classes.unadj <-Psychosis.males.ci.unadj[grepl("Class", rownames(Psychosis.males.ci.unadj)),]
+Psychosis.males.unadj<- cbind(Psychosis.males.or.unadj , Psychosis.males.ci.classes.unadj )
+colnames(Psychosis.males.unadj) <- c("Unadjusted OR", "Lower CI", "Upper CI")
+rownames(Psychosis.males.unadj) < c("Trauma", "Trauma.SV")
+
+##Adjusted ORs
+
+Psychosis.males.or.adj <- rbind(exp(coef(Psychosis.males.adj.t)[2]), exp(coef(Psychosis.males.adj.tsv)[2]))
+Psychosis.males.ci.adj <- rbind(exp(confint(Psychosis.males.adj.t)), exp(confint(Psychosis.males.adj.tsv)))
+
+Psychosis.males.ci.classes.adj <-Psychosis.males.ci.adj[grepl("Class", rownames(Psychosis.males.ci.adj)),]
+Psychosis.males.adj<- cbind(Psychosis.males.or.adj , Psychosis.males.ci.classes.adj )
+colnames(Psychosis.males.adj) <- c("Adjusted OR", "Lower CI", "Upper CI")
+rownames(Psychosis.males.adj) < c("Trauma", "Trauma.SV")
+
+##Summary depression
+
+sink("Results_depression_males.txt")
+cat("Model summaries\n")
+print(summary(Depression.males.unadj.t))
+print(summary(Depression.males.adj.t))
+print(summary(Depression.males.unadj.tsv))
+print(summary(Depression.males.adj.tsv))
+cat("Unadjusted Odds ratios\n")
+print(Depression.males.unadj)
+cat("Adjusted Odds ratios\n")
+print(Depression.males.adj)
+sink()
+
+##Summary Anxiety
+
+sink("Results_Anxiety_males.txt")
+cat("Model summaries\n")
+print(summary(Anxiety.males.unadj.t))
+print(summary(Anxiety.males.adj.t))
+print(summary(Anxiety.males.unadj.tsv))
+print(summary(Anxiety.males.adj.tsv))
+cat("Unadjusted Odds ratios\n")
+print(Anxiety.males.unadj)
+cat("Adjusted Odds ratios\n")
+print(Anxiety.males.adj)
+sink()
+
+##Summary Alcohol
+
+sink("Results_Alcohol_males.txt")
+cat("Model summaries\n")
+print(summary(Alcohol.males.unadj.t))
+print(summary(Alcohol.males.adj.t))
+print(summary(Alcohol.males.unadj.tsv))
+print(summary(Alcohol.males.adj.tsv))
+cat("Unadjusted Odds ratios\n")
+print(Alcohol.males.unadj)
+cat("Adjusted Odds ratios\n")
+print(Alcohol.males.adj)
+sink()
+
+##Summary Psychosis
+
+sink("Results_Psychosis_males.txt")
+cat("Model summaries\n")
+print(summary(Psychosis.males.unadj.t))
+print(summary(Psychosis.males.adj.t))
+print(summary(Psychosis.males.unadj.tsv))
+print(summary(Psychosis.males.adj.tsv))
+cat("Unadjusted Odds ratios\n")
+print(Psychosis.males.unadj)
+cat("Adjusted Odds ratios\n")
+print(Psychosis.males.adj)
+sink()
+
+
+```
+
+
+
+##14. Class membership predicted by sociodemographic/socioeconomic variables
+
+```{r, Diagnostics}
+
+##Run analysis
+
+Class.SV.adj <- (glm(Class.SV ~ Age.At.MHQ + Ethnicity.recoded + factor(Townsend.Deprivation) + factor(Education) + factor(Household.Income) + Migrant.Status + Loneliness + Social.Isolation, family="binomial", na.action=na.exclude, data=Current.sample.f))
+Class.IPV.adj <- (glm(Class.IPV ~ Age.At.MHQ + Ethnicity.recoded + factor(Townsend.Deprivation) + factor(Education) + factor(Household.Income) + Migrant.Status + Loneliness + Social.Isolation, family="binomial", na.action=na.exclude, data=Current.sample.f))
+Class.CA.adj <- (glm(Class.CA ~ Age.At.MHQ + Ethnicity.recoded + factor(Townsend.Deprivation) + factor(Education) + factor(Household.Income) + Migrant.Status + Loneliness + Social.Isolation, family="binomial", na.action=na.exclude, data=Current.sample.f))
+Class.HR.adj <- (glm(Class.HR ~ Age.At.MHQ + Ethnicity.recoded + factor(Townsend.Deprivation) + factor(Education) + factor(Household.Income) + Migrant.Status + Loneliness + Social.Isolation, family="binomial", na.action=na.exclude, data=Current.sample.f))
+
+
+Class.Trauma.adj <- (glm(Class.Trauma ~ Age.At.MHQ + Ethnicity.recoded + factor(Townsend.Deprivation) + factor(Education) + factor(Household.Income) + Migrant.Status + Loneliness + Social.Isolation, family="binomial", na.action=na.exclude, data=Current.sample.m))
+Class.Trauma.SV.adj <- (glm(Class.Trauma.SV ~ Age.At.MHQ + Ethnicity.recoded + factor(Townsend.Deprivation) + factor(Education) + factor(Household.Income) + Migrant.Status + Loneliness + Social.Isolation, family="binomial", na.action=na.exclude, data=Current.sample.m))
+
+Females.or.adj <- rbind(exp(melt(coef(Class.SV.adj))), exp(melt(coef(Class.IPV.adj))), exp(melt(coef(Class.CA.adj))), exp(melt(coef(Class.HR.adj))))
+Females.ci.adj <- rbind(exp(confint(Class.SV.adj)), exp(confint(Class.IPV.adj)), exp(confint(Class.CA.adj)), exp(confint(Class.HR.adj)))
+Females.adj<- cbind(Females.or.adj , Females.ci.adj )
+colnames(Females.adj) <- c("Adjusted OR", "Lower CI", "Upper CI")
+
+Males.or.adj <- rbind(exp(melt(coef(Class.Trauma.adj))), exp(melt(coef(Class.Trauma.SV.adj))))
+Males.ci.adj <- rbind(exp(confint(Class.Trauma.adj)), exp(confint(Class.Trauma.SV.adj)))
+Males.adj<- cbind(Males.or.adj , Males.ci.adj )
+colnames(Males.adj) <- c("Adjusted OR", "Lower CI", "Upper CI")
+
+##Summary females
+
+sink("Demographic_results_female_classes.txt")
+cat("Model summaries\n")
+print(summary(Class.SV.adj))
+print(summary(Class.IPV.adj))
+print(summary(Class.CA.adj))
+print(summary(Class.HR.adj))
+cat("Odds ratios\n")
+print(Females.adj)
+sink()
+
+##Summary males
+
+sink("Demographic_results_male_classes.txt")
+cat("Model summaries\n")
+print(summary(Class.Trauma.adj))
+print(summary(Class.Trauma.SV.adj))
+cat("Odds ratios\n")
+print(Males.adj)
+sink()
+
+
+```
+
+##15. Regression males - with max posterior probability as weights
+
+```{r, Weighted regressions}
+
+
+#Creation of maximum posterior probability as variable
+
+Max.posterior.m<-apply(lc3_m$posterior, 1, max)
+Current.sample.m<-cbind(Current.sample_Male, Max.posterior.m)
+
+#Depression weighted
+
+Depression.males.unadj.t.weighted <- (glm(Depressed.Current ~ Class.Trauma, family="binomial", weights=Max.posterior.m, na.action=na.exclude, data=Current.sample.m))
+Depression.males.unadj.tsv.weighted <- (glm(Depressed.Current ~ Class.Trauma.SV, family="binomial", weights=Max.posterior.m, na.action=na.exclude, data=Current.sample.m))
+
+Depression.males.adj.weighted <- (glm(Depressed.Current ~ Class.Trauma + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", weights=Max.posterior.m, na.action=na.exclude, data=Current.sample.m))
+Depression.males.adj.weighted <- (glm(Depressed.Current ~ Class.Trauma.SV + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", weights=Max.posterior.m, na.action=na.exclude, data=Current.sample.m))
+
+
+print(summary(Depression.males.unadj.t.weighted))
+print(summary(Depression.males.unadj.tsv.weighted))
+
+##Unadjusted ORs
+
+Depression.males.or.unadj.weighted <- rbind(exp(coef(Depression.males.unadj.t.weighted)[2]), exp(coef(Depression.males.unadj.tsv.weighted)[2]))
+Depression.males.ci.unadj.weighted <- rbind(exp(confint(Depression.males.unadj.t.weighted)), exp(confint(Depression.males.unadj.tsv.weighted)))
+
+Depression.males.ci.classes.unadj.weighted <-Depression.males.ci.unadj.weighted[grepl("Class", rownames(Depression.males.ci.unadj.weighted)),]
+Depression.males.unadj.weighted<- cbind(Depression.males.or.unadj.weighted, Depression.males.ci.classes.unadj.weighted)
+colnames(Depression.males.unadj.weighted) <- c("Unadjusted OR", "Lower CI", "Upper CI")
+rownames(Depression.males.unadj.weighted) < c("Trauma", "Trauma.SV")
+
+##Adjusted ORs
+
+Depression.males.or.adj.weighted <- rbind(exp(coef(Depression.males.adj.t.weighted)[2]), exp(coef(Depression.males.adj.tsv.weighted)[2]))
+Depression.males.ci.adj.weighted <- rbind(exp(confint(Depression.males.adj.t.weighted)), exp(confint(Depression.males.adj.tsv.weighted)))
+
+Depression.males.ci.classes.adj.weighted <-Depression.males.ci.adj.weighted[grepl("Class", rownames(Depression.males.ci.adj.weighted)),]
+Depression.males.adj.weighted<- cbind(Depression.males.or.adj.weighted, Depression.males.ci.classes.adj.weighted)
+colnames(Depression.males.adj.weighted) <- c("Adjusted OR", "Lower CI", "Upper CI")
+rownames(Depression.males.adj.weighted) < c("Trauma", "Trauma.SV")
+
+#Anxiety
+
+Anxiety.males.unadj.t.weighted <- (glm(GAD.Current ~ Class.Trauma, family="binomial", weights=Max.posterior.m, na.action=na.exclude, data=Current.sample.m))
+Anxiety.males.unadj.tsv.weighted <- (glm(GAD.Current ~ Class.Trauma.SV, family="binomial", weights=Max.posterior.m, na.action=na.exclude, data=Current.sample.m))
+
+Anxiety.males.adj.t.weighted <- (glm(GAD.Current ~ Class.Trauma + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", weights=Max.posterior.m, na.action=na.exclude, data=Current.sample.m))
+Anxiety.males.adj.tsv.weighted <- (glm(GAD.Current ~ Class.Trauma.SV + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", weights=Max.posterior.m, na.action=na.exclude, data=Current.sample.m))
+
+##Unadjusted ORs
+
+Anxiety.males.or.unadj.weighted <- rbind(exp(coef(Anxiety.males.unadj.t.weighted)[2]), exp(coef(Anxiety.males.unadj.tsv.weighted)[2]))
+Anxiety.males.ci.unadj.weighted <- rbind(exp(confint(Anxiety.males.unadj.t.weighted)), exp(confint(Anxiety.males.unadj.tsv.weighted)))
+
+Anxiety.males.ci.classes.unadj.weighted <-Anxiety.males.ci.unadj.weighted[grepl("Class", rownames(Anxiety.males.ci.unadj.weighted)),]
+Anxiety.males.unadj.weighted<- cbind(Anxiety.males.or.unadj.weighted, Anxiety.males.ci.classes.unadj.weighted)
+colnames(Anxiety.males.unadj.weighted) <- c("Unadjusted OR", "Lower CI", "Upper CI")
+rownames(Anxiety.males.unadj.weighted) < c("Trauma", "Trauma.SV")
+
+##Adjusted ORs
+
+Anxiety.males.or.adj.weighted <- rbind(exp(coef(Anxiety.males.adj.t.weighted)[2]), exp(coef(Anxiety.males.adj.tsv.weighted)[2]))
+Anxiety.males.ci.adj.weighted <- rbind(exp(confint(Anxiety.males.adj.t.weighted)), exp(confint(Anxiety.males.adj.tsv.weighted)))
+
+Anxiety.males.ci.classes.adj.weighted <-Anxiety.males.ci.adj.weighted[grepl("Class", rownames(Anxiety.males.ci.adj.weighted)),]
+Anxiety.males.adj.weighted<- cbind(Anxiety.males.or.adj.weighted, Anxiety.males.ci.classes.adj.weighted)
+colnames(Anxiety.males.adj.weighted) <- c("Adjusted OR", "Lower CI", "Upper CI")
+rownames(Anxiety.males.adj.weighted) < c("Trauma", "Trauma.SV")
+
+#Alcohol 
+
+Alcohol.males.unadj.t.weighted <- (glm(Alcohol.Use.Disorder ~ Class.Trauma, family="binomial", weights=Max.posterior.m, na.action=na.exclude, data=Current.sample.m))
+Alcohol.males.unadj.tsv.weighted <- (glm(Alcohol.Use.Disorder ~ Class.Trauma.SV, family="binomial", weights=Max.posterior.m, na.action=na.exclude, data=Current.sample.m))
+
+Alcohol.males.adj.t.weighted <- (glm(Alcohol.Use.Disorder ~ Class.Trauma + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", weights=Max.posterior.m, na.action=na.exclude, data=Current.sample.m))
+Alcohol.males.adj.tsv.weighted <- (glm(Alcohol.Use.Disorder ~ Class.Trauma.SV + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", weights=Max.posterior.m, na.action=na.exclude, data=Current.sample.m))
+
+##Unadjusted ORs
+
+Alcohol.males.or.unadj.weighted <- rbind(exp(coef(Alcohol.males.unadj.t.weighted)[2]), exp(coef(Alcohol.males.unadj.tsv.weighted)[2]))
+Alcohol.males.ci.unadj.weighted <- rbind(exp(confint(Alcohol.males.unadj.t.weighted)), exp(confint(Alcohol.males.unadj.tsv.weighted)))
+
+Alcohol.males.ci.classes.unadj.weighted <-Alcohol.males.ci.unadj.weighted[grepl("Class", rownames(Alcohol.males.ci.unadj.weighted)),]
+Alcohol.males.unadj.weighted<- cbind(Alcohol.males.or.unadj.weighted, Alcohol.males.ci.classes.unadj.weighted)
+colnames(Alcohol.males.unadj.weighted) <- c("Unadjusted OR", "Lower CI", "Upper CI")
+rownames(Alcohol.males.unadj.weighted) < c("Trauma", "Trauma.SV")
+
+##Adjusted ORs
+
+Alcohol.males.or.adj.weighted <- rbind(exp(coef(Alcohol.males.adj.t.weighted)[2]), exp(coef(Alcohol.males.adj.tsv.weighted)[2]))
+Alcohol.males.ci.adj.weighted <- rbind(exp(confint(Alcohol.males.adj.t.weighted)), exp(confint(Alcohol.males.adj.tsv.weighted)))
+
+Alcohol.males.ci.classes.adj.weighted <-Alcohol.males.ci.adj.weighted[grepl("Class", rownames(Alcohol.males.ci.adj.weighted)),]
+Alcohol.males.adj.weighted<- cbind(Alcohol.males.or.adj.weighted, Alcohol.males.ci.classes.adj.weighted)
+colnames(Alcohol.males.adj.weighted) <- c("Adjusted OR", "Lower CI", "Upper CI")
+rownames(Alcohol.males.adj.weighted) < c("Trauma", "Trauma.SV")
+
+#Psychosis 
+
+Psychosis.males.unadj.t.weighted <- (glm(Unusual.Experience.Recent ~ Class.Trauma, family="binomial", weights=Max.posterior.m, na.action=na.exclude, data=Current.sample.m))
+Psychosis.males.unadj.tsv.weighted <- (glm(Unusual.Experience.Recent ~ Class.Trauma.SV, family="binomial", weights=Max.posterior.m, na.action=na.exclude, data=Current.sample.m))
+
+Psychosis.males.adj.t.weighted <- (glm(Unusual.Experience.Recent ~ Class.Trauma + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", weights=Max.posterior.m, na.action=na.exclude, data=Current.sample.m))
+Psychosis.males.adj.tsv.weighted <- (glm(Unusual.Experience.Recent ~ Class.Trauma.SV + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", weights=Max.posterior.m, na.action=na.exclude, data=Current.sample.m))
+
+##Unadjusted ORs
+
+Psychosis.males.or.unadj.weighted <- rbind(exp(coef(Psychosis.males.unadj.t.weighted)[2]), exp(coef(Psychosis.males.unadj.tsv.weighted)[2]))
+Psychosis.males.ci.unadj.weighted <- rbind(exp(confint(Psychosis.males.unadj.t.weighted)), exp(confint(Psychosis.males.unadj.tsv.weighted)))
+
+Psychosis.males.ci.classes.unadj.weighted <-Psychosis.males.ci.unadj.weighted[grepl("Class", rownames(Psychosis.males.ci.unadj.weighted)),]
+Psychosis.males.unadj.weighted<- cbind(Psychosis.males.or.unadj.weighted, Psychosis.males.ci.classes.unadj.weighted)
+colnames(Psychosis.males.unadj.weighted) <- c("Unadjusted OR", "Lower CI", "Upper CI")
+rownames(Psychosis.males.unadj.weighted) < c("Trauma", "Trauma.SV")
+
+##Adjusted ORs
+
+Psychosis.males.or.adj.weighted <- rbind(exp(coef(Psychosis.males.adj.t.weighted)[2]), exp(coef(Psychosis.males.adj.tsv.weighted)[2]))
+Psychosis.males.ci.adj.weighted <- rbind(exp(confint(Psychosis.males.adj.t.weighted)), exp(confint(Psychosis.males.adj.tsv.weighted)))
+
+Psychosis.males.ci.classes.adj.weighted<-Psychosis.males.ci.adj.weighted[grepl("Class", rownames(Psychosis.males.ci.adj.weighted)),]
+Psychosis.males.adj.weighted<- cbind(Psychosis.males.or.adj.weighted, Psychosis.males.ci.classes.adj.weighted)
+colnames(Psychosis.males.adj.weighted) <- c("Adjusted OR", "Lower CI", "Upper CI")
+rownames(Psychosis.males.adj.weighted) < c("Trauma", "Trauma.SV")
+
+##Summary depression
+
+sink("Results_depression_males_weighted.txt")
+cat("Model summaries\n")
+print(summary(Depression.males.unadj.t.weighted))
+print(summary(Depression.males.adj.t.weighted))
+print(summary(Depression.males.unadj.tsv.weighted))
+print(summary(Depression.males.adj.tsv.weighted))
+cat("Unadjusted Odds ratios\n")
+print(Depression.males.unadj.weighted)
+cat("Adjusted Odds ratios\n")
+print(Depression.males.adj.weighted)
+sink()
+
+##Summary Anxiety
+
+sink("Results_Anxiety_males_weighted.txt")
+cat("Model summaries\n")
+print(summary(Anxiety.males.unadj.t.weighted))
+print(summary(Anxiety.males.adj.t.weighted))
+print(summary(Anxiety.males.unadj.tsv.weighted))
+print(summary(Anxiety.males.adj.tsv.weighted))
+cat("Unadjusted Odds ratios\n")
+print(Anxiety.males.unadj.weighted)
+cat("Adjusted Odds ratios\n")
+print(Anxiety.males.adj.weighted)
+sink()
+
+##Summary Alcohol
+
+sink("Results_Alcohol_males_weighted.txt")
+cat("Model summaries\n")
+print(summary(Alcohol.males.unadj.t.weighted))
+print(summary(Alcohol.males.adj.t.weighted))
+print(summary(Alcohol.males.unadj.tsv.weighted))
+print(summary(Alcohol.males.adj.tsv.weighted))
+cat("Unadjusted Odds ratios\n")
+print(Alcohol.males.unadj.weighted)
+cat("Adjusted Odds ratios\n")
+print(Alcohol.males.adj.weighted)
+sink()
+
+##Summary Psychosis
+
+sink("Results_Psychosis_males_weighted.txt")
+cat("Model summaries\n")
+print(summary(Psychosis.males.unadj.t.weighted))
+print(summary(Psychosis.males.adj.t.weighted))
+print(summary(Psychosis.males.unadj.tsv.weighted))
+print(summary(Psychosis.males.adj.tsv.weighted))
+cat("Unadjusted Odds ratios\n")
+print(Psychosis.males.unadj.weighted)
+cat("Adjusted Odds ratios\n")
+print(Psychosis.males.adj.weighted)
+sink()
+
+```
+
+##16. Regression females - with max posterior probability as weights
+
+```{r, weighted regression females}
+
+#Creation of maximum posterior probability as variable
+
+Max.posterior.f<-apply(lc5_f$posterior, 1, max)
+Current.sample.f<-cbind(Current.sample_Female, Max.posterior.f)
+
+#Depression
+
+Depression.females.unadj.sv.weighted <- (glm(Depressed.Current ~ Class.SV, family="binomial", weights=Max.posterior.f, na.action=na.exclude, data=Current.sample.f))
+Depression.females.unadj.ipv.weighted <- (glm(Depressed.Current ~ Class.IPV, family="binomial", weights=Max.posterior.f, na.action=na.exclude,data=Current.sample.f))
+Depression.females.unadj.ca.weighted <- (glm(Depressed.Current ~ Class.CA, family="binomial", weights=Max.posterior.f, na.action=na.exclude, data=Current.sample.f))
+Depression.females.unadj.hr.weighted <- (glm(Depressed.Current ~ Class.HR, family="binomial", weights=Max.posterior.f, na.action=na.exclude, data=Current.sample.f))
+
+
+Depression.females.adj.sv.weighted <- (glm(Depressed.Current ~ Class.SV + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", weights=Max.posterior.f, na.action=na.exclude, data=Current.sample.f))
+Depression.females.adj.ipv.weighted <- (glm(Depressed.Current ~ Class.IPV + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", weights=Max.posterior.f, na.action=na.exclude, data=Current.sample.f))
+Depression.females.adj.ca.weighted <- (glm(Depressed.Current ~ Class.CA + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", weights=Max.posterior.f, na.action=na.exclude, data=Current.sample.f))
+Depression.females.adj.hr.weighted <- (glm(Depressed.Current ~ Class.HR + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", weights=Max.posterior.f, na.action=na.exclude, data=Current.sample.f))
+
+##Unadjusted ORs
+
+Depression.females.or.unadj.weighted <- rbind(exp(coef(Depression.females.unadj.sv.weighted)[2]), exp(coef(Depression.females.unadj.ipv.weighted)[2]), exp(coef(Depression.females.unadj.ca.weighted)[2]), exp(coef(Depression.females.unadj.hr.weighted)[2]))
+Depression.females.ci.unadj.weighted <- rbind(exp(confint(Depression.females.unadj.sv.weighted)), exp(confint(Depression.females.unadj.ipv.weighted)), exp(confint(Depression.females.unadj.ca.weighted)), exp(confint(Depression.females.unadj.hr.weighted)))
+
+Depression.females.ci.classes.unadj.weighted <-Depression.females.ci.unadj.weighted[grepl("Class", rownames(Depression.females.ci.unadj.weighted)),]
+Depression.females.unadj.weighted<- cbind(Depression.females.or.unadj.weighted, Depression.females.ci.classes.unadj.weighted)
+colnames(Depression.females.unadj.weighted) <- c("Unadjusted OR", "Lower CI", "Upper CI")
+rownames(Depression.females.unadj.weighted) < c("SV", "IPV", "CA", "HR")
+
+##Adjusted ORs
+
+Depression.females.or.weighted <- rbind(exp(coef(Depression.females.adj.sv.weighted)[2]), exp(coef(Depression.females.adj.ipv.weighted)[2]), exp(coef(Depression.females.adj.ca.weighted)[2]), exp(coef(Depression.females.adj.hr.weighted)[2]))
+Depression.females.ci.weighted <- rbind(exp(confint(Depression.females.adj.sv.weighted)), exp(confint(Depression.females.adj.ipv.weighted)), exp(confint(Depression.females.adj.ca.weighted)), exp(confint(Depression.females.adj.hr.weighted)))
+
+Depression.females.ci.classes.weighted <-Depression.females.ci.weighted[grepl("Class", rownames(Depression.females.ci.weighted)),]
+Depression.females.adj.weighted<- cbind(Depression.females.or.weighted, Depression.females.ci.classes.weighted)
+colnames(Depression.females.adj.weighted) <- c("Adjusted OR", "Lower CI", "Upper CI")
+rownames(Depression.females.adj.weighted) < c("SV", "IPV", "CA", "HR")
+
+#Anxiety
+
+Anxiety.females.unadj.sv.weighted <- (glm(GAD.Current ~ Class.SV, family="binomial", weights=Max.posterior.f, na.action=na.exclude, data=Current.sample.f))
+Anxiety.females.unadj.ipv.weighted <- (glm(GAD.Current ~ Class.IPV, family="binomial", na.action=na.exclude, data=Current.sample.f))
+Anxiety.females.unadj.ca.weighted <- (glm(GAD.Current ~ Class.CA, family="binomial", weights=Max.posterior.f, na.action=na.exclude, data=Current.sample.f))
+Anxiety.females.unadj.hr.weighted <- (glm(GAD.Current ~ Class.HR, family="binomial", weights=Max.posterior.f, na.action=na.exclude, data=Current.sample.f))
+
+Anxiety.females.adj.sv.weighted <- (glm(GAD.Current ~ Class.SV + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", weights=Max.posterior.f, na.action=na.exclude, data=Current.sample.f))
+Anxiety.females.adj.ipv.weighted <- (glm(GAD.Current ~ Class.IPV + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", weights=Max.posterior.f, na.action=na.exclude, data=Current.sample.f))
+Anxiety.females.adj.ca.weighted <- (glm(GAD.Current ~ Class.CA + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", weights=Max.posterior.f, na.action=na.exclude, data=Current.sample.f))
+Anxiety.females.adj.hr.weighted <- (glm(GAD.Current ~ Class.HR + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", weights=Max.posterior.f, na.action=na.exclude, data=Current.sample.f))
+
+##Unadjusted ORs
+
+Anxiety.females.or.unadj.weighted <- rbind(exp(coef(Anxiety.females.unadj.sv.weighted)[2]), exp(coef(Anxiety.females.unadj.ipv.weighted)[2]), exp(coef(Anxiety.females.unadj.ca.weighted)[2]), exp(coef(Anxiety.females.unadj.hr.weighted)[2]))
+Anxiety.females.ci.unadj.weighted <- rbind(exp(confint(Anxiety.females.unadj.sv.weighted)), exp(confint(Anxiety.females.unadj.ipv.weighted)), exp(confint(Anxiety.females.unadj.ca.weighted)), exp(confint(Anxiety.females.unadj.hr.weighted)))
+
+Anxiety.females.ci.classes.unadj.weighted <-Anxiety.females.ci.unadj.weighted[grepl("Class", rownames(Anxiety.females.ci.unadj.weighted)),]
+Anxiety.females.unadj.weighted<- cbind(Anxiety.females.or.unadj.weighted, Anxiety.females.ci.classes.unadj.weighted)
+colnames(Anxiety.females.unadj.weighted) <- c("Unadjusted OR", "Lower CI", "Upper CI")
+rownames(Anxiety.females.unadj.weighted) < c("SV", "IPV", "CA", "HR")
+
+##Adjusted ORs
+
+Anxiety.females.or.weighted <- rbind(exp(coef(Anxiety.females.adj.sv.weighted)[2]), exp(coef(Anxiety.females.adj.ipv.weighted)[2]), exp(coef(Anxiety.females.adj.ca.weighted)[2]), exp(coef(Anxiety.females.adj.hr.weighted)[2]))
+Anxiety.females.ci.weighted <- rbind(exp(confint(Anxiety.females.adj.sv.weighted)), exp(confint(Anxiety.females.adj.ipv.weighted)), exp(confint(Anxiety.females.adj.ca.weighted)), exp(confint(Anxiety.females.adj.hr.weighted)))
+
+Anxiety.females.ci.classes.weighted <-Anxiety.females.ci.weighted[grepl("Class", rownames(Anxiety.females.ci)),]
+Anxiety.females.adj.weighted<- cbind(Anxiety.females.or.weighted, Anxiety.females.ci.classes.weighted)
+colnames(Anxiety.females.adj.weighted) <- c("Undjusted OR", "Lower CI", "Upper CI")
+rownames(Anxiety.females.adj.weighted) < c("SV", "IPV", "CA", "HR")
+
+#Alcohol 
+
+Alcohol.females.unadj.sv.weighted <- (glm(Alcohol.Use.Disorder ~ Class.SV, family="binomial", weights=Max.posterior.f, na.action=na.exclude, data=Current.sample.f))
+Alcohol.females.unadj.ipv.weighted <- (glm(Alcohol.Use.Disorder ~ Class.IPV, family="binomial", weights=Max.posterior.f, na.action=na.exclude, data=Current.sample.f))
+Alcohol.females.unadj.ca.weighted <- (glm(Alcohol.Use.Disorder ~ Class.CA, family="binomial", weights=Max.posterior.f, na.action=na.exclude, data=Current.sample.f))
+Alcohol.females.unadj.hr.weighted <- (glm(Alcohol.Use.Disorder ~ Class.HR, family="binomial", weights=Max.posterior.f, na.action=na.exclude, data=Current.sample.f))
+
+Alcohol.females.adj.sv.weighted <- (glm(Alcohol.Use.Disorder ~ Class.SV + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", weights=Max.posterior.f, na.action=na.exclude, data=Current.sample.f))
+Alcohol.females.adj.ipv.weighted <- (glm(Alcohol.Use.Disorder ~ Class.IPV + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", weights=Max.posterior.f, na.action=na.exclude, data=Current.sample.f))
+Alcohol.females.adj.ca.weighted <- (glm(Alcohol.Use.Disorder ~ Class.CA + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", weights=Max.posterior.f, na.action=na.exclude, data=Current.sample.f))
+Alcohol.females.adj.hr.weighted <- (glm(Alcohol.Use.Disorder ~ Class.HR + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", weights=Max.posterior.f, na.action=na.exclude, data=Current.sample.f))
+
+##Unadjusted ORs
+
+Alcohol.females.or.unadj.weighted <- rbind(exp(coef(Alcohol.females.unadj.sv.weighted)[2]), exp(coef(Alcohol.females.unadj.ipv.weighted)[2]), exp(coef(Alcohol.females.unadj.ca.weighted)[2]), exp(coef(Alcohol.females.unadj.hr.weighted)[2]))
+Alcohol.females.ci.unadj.weighted <- rbind(exp(confint(Alcohol.females.unadj.sv.weighted)), exp(confint(Alcohol.females.unadj.ipv.weighted)), exp(confint(Alcohol.females.unadj.ca.weighted)), exp(confint(Alcohol.females.unadj.hr.weighted)))
+
+Alcohol.females.ci.classes.unadj.weighted <-Alcohol.females.ci.unadj.weighted[grepl("Class", rownames(Alcohol.females.ci.unadj.weighted)),]
+Alcohol.females.unadj.weighted<- cbind(Alcohol.females.or.unadj.weighted, Alcohol.females.ci.classes.unadj.weighted)
+colnames(Alcohol.females.unadj.weighted) <- c("Unadjusted OR", "Lower CI", "Upper CI")
+rownames(Alcohol.females.unadj.weighted) < c("SV", "IPV", "CA", "HR")
+
+##Adjusted ORs
+
+Alcohol.females.or.weighted <- rbind(exp(coef(Alcohol.females.adj.sv.weighted)[2]), exp(coef(Alcohol.females.adj.ipv.weighted)[2]), exp(coef(Alcohol.females.adj.ca.weighted)[2]), exp(coef(Alcohol.females.adj.hr.weighted)[2]))
+Alcohol.females.ci.weighted <- rbind(exp(confint(Alcohol.females.adj.sv.weighted)), exp(confint(Alcohol.females.adj.ipv.weighted)), exp(confint(Alcohol.females.adj.ca.weighted)), exp(confint(Alcohol.females.adj.hr.weighted)))
+
+Alcohol.females.ci.classes.weighted <-Alcohol.females.ci.weighted[grepl("Class", rownames(Alcohol.females.ci.weighted)),]
+Alcohol.females.adj.weighted<- cbind(Alcohol.females.or.weighted, Alcohol.females.ci.classes.weighted)
+colnames(Alcohol.females.adj.weighted) <- c("Adjusted OR", "Lower CI", "Upper CI")
+rownames(Alcohol.females.adj.weighted) < c("SV", "IPV", "CA", "HR")
+
+#Psychosis 
+
+Psychosis.females.unadj.sv.weighted <- (glm(Unusual.Experience.Recent ~ Class.SV, family="binomial", weights=Max.posterior.f, na.action=na.exclude, data=Current.sample.f))
+Psychosis.females.unadj.ipv.weighted <- (glm(Unusual.Experience.Recent ~ Class.IPV, family="binomial", weights=Max.posterior.f, na.action=na.exclude, data=Current.sample.f))
+Psychosis.females.unadj.ca.weighted <- (glm(Unusual.Experience.Recent ~ Class.CA, family="binomial", weights=Max.posterior.f, na.action=na.exclude, data=Current.sample.f))
+Psychosis.females.unadj.hr.weighted <- (glm(Unusual.Experience.Recent ~ Class.HR, family="binomial", weights=Max.posterior.f, na.action=na.exclude, data=Current.sample.f))
+
+Psychosis.females.adj.sv.weighted <- (glm(Unusual.Experience.Recent ~ Class.SV + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", weights=Max.posterior.f, na.action=na.exclude, data=Current.sample.f))
+Psychosis.females.adj.ipv.weighted <- (glm(Unusual.Experience.Recent ~ Class.IPV + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", weights=Max.posterior.f, na.action=na.exclude, data=Current.sample.f))
+Psychosis.females.adj.ca.weighted <- (glm(Unusual.Experience.Recent ~ Class.CA + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", weights=Max.posterior.f, na.action=na.exclude, data=Current.sample.f))
+Psychosis.females.adj.hr.weighted <- (glm(Unusual.Experience.Recent ~ Class.HR + Age.At.MHQ + Ethnicity.recoded + Townsend.Deprivation + Education + Household.Income + Migrant.Status + Loneliness + Social.Isolation, family="binomial", weights=Max.posterior.f, na.action=na.exclude, data=Current.sample.f))
+
+##Unadjusted ORs
+
+Psychosis.females.or.unadj.weighted <- rbind(exp(coef(Psychosis.females.unadj.sv.weighted)[2]), exp(coef(Psychosis.females.unadj.ipv.weighted)[2]), exp(coef(Psychosis.females.unadj.ca.weighted)[2]), exp(coef(Psychosis.females.unadj.hr.weighted)[2]))
+Psychosis.females.ci.unadj.weighted <- rbind(exp(confint(Psychosis.females.unadj.sv.weighted)), exp(confint(Psychosis.females.unadj.ipv.weighted)), exp(confint(Psychosis.females.unadj.ca.weighted)), exp(confint(Psychosis.females.unadj.hr.weighted)))
+
+Psychosis.females.ci.classes.unadj.weighted <-Psychosis.females.ci.unadj.weighted[grepl("Class", rownames(Psychosis.females.ci.unadj.weighted)),]
+Psychosis.females.unadj.weighted<- cbind(Psychosis.females.or.unadj.weighted, Psychosis.females.ci.classes.unadj.weighted)
+colnames(Psychosis.females.unadj.weighted) <- c("Unadjusted OR", "Lower CI", "Upper CI")
+rownames(Psychosis.females.unadj.weighted) < c("SV", "IPV", "CA", "HR")
+
+##Adjusted ORs
+
+Psychosis.females.or.weighted <- rbind(exp(coef(Psychosis.females.adj.sv.weighted)[2]), exp(coef(Psychosis.females.adj.ipv.weighted)[2]), exp(coef(Psychosis.females.adj.ca.weighted)[2]), exp(coef(Psychosis.females.adj.hr.weighted)[2]))
+Psychosis.females.ci.weighted <- rbind(exp(confint(Psychosis.females.adj.sv.weighted)), exp(confint(Psychosis.females.adj.ipv.weighted)), exp(confint(Psychosis.females.adj.ca.weighted)), exp(confint(Psychosis.females.adj.hr.weighted)))
+
+Psychosis.females.ci.classes.weighted <-Psychosis.females.ci.weighted[grepl("Class", rownames(Psychosis.females.ci.weighted)),]
+Psychosis.females.adj.weighted<- cbind(Psychosis.females.or.weighted, Psychosis.females.ci.classes.weighted)
+colnames(Psychosis.females.adj.weighted) <- c("Adjusted OR", "Lower CI", "Upper CI")
+rownames(Psychosis.females.adj.weighted) < c("SV", "IPV", "CA", "HR")
+
+##Summary depression
+
+sink("Results_depression_females_weighted.txt")
+cat("Model summaries\n")
+print(summary(Depression.females.unadj.sv.weighted))
+print(summary(Depression.females.adj.sv.weighted))
+print(summary(Depression.females.unadj.ipv.weighted))
+print(summary(Depression.females.adj.ipv.weighted))
+print(summary(Depression.females.unadj.ca.weighted))
+print(summary(Depression.females.adj.ca.weighted))
+print(summary(Depression.females.unadj.hr.weighted))
+print(summary(Depression.females.adj.hr.weighted))
+cat("Unadjusted Odds ratios\n")
+print(Depression.females.unadj.weighted)
+cat("Adjusted Odds ratios\n")
+print(Depression.females.adj.weighted)
+sink()
+
+##Summary Anxiety
+
+sink("Results_Anxiety_females_weighted.txt")
+cat("Model summaries\n")
+print(summary(Anxiety.females.unadj.sv.weighted))
+print(summary(Anxiety.females.adj.sv.weighted))
+print(summary(Anxiety.females.unadj.ipv.weighted))
+print(summary(Anxiety.females.adj.ipv.weighted))
+print(summary(Anxiety.females.unadj.ca.weighted))
+print(summary(Anxiety.females.adj.ca.weighted))
+print(summary(Anxiety.females.unadj.hr.weighted))
+print(summary(Anxiety.females.adj.hr.weighted))
+cat("Unadjusted Odds ratios\n")
+print(Anxiety.females.unadj.weighted)
+cat("Adjusted Odds ratios\n")
+print(Anxiety.females.adj.weighted)
+sink()
+
+##Summary Alcohol
+
+sink("Results_Alcohol_females_weighted.txt")
+cat("Model summaries\n")
+print(summary(Alcohol.females.unadj.sv.weighted))
+print(summary(Alcohol.females.adj.sv.weighted))
+print(summary(Alcohol.females.unadj.ipv.weighted))
+print(summary(Alcohol.females.adj.ipv.weighted))
+print(summary(Alcohol.females.unadj.ca.weighted))
+print(summary(Alcohol.females.adj.ca.weighted))
+print(summary(Alcohol.females.unadj.hr.weighted))
+print(summary(Alcohol.females.adj.hr.weighted))
+cat("Unadjusted Odds ratios\n")
+print(Alcohol.females.unadj.weighted)
+cat("Adjusted Odds ratios\n")
+print(Alcohol.females.adj.weighted)
+sink()
+
+
+##Summary Psychosis
+
+sink("Results_Psychosis_females.txt")
+cat("Model summaries\n")
+print(summary(Psychosis.females.unadj.sv.weighted))
+print(summary(Psychosis.females.adj.sv.weighted))
+print(summary(Psychosis.females.unadj.ipv.weighted))
+print(summary(Psychosis.females.adj.ipv.weighted))
+print(summary(Psychosis.females.unadj.ca.weighted))
+print(summary(Psychosis.females.adj.ca.weighted))
+print(summary(Psychosis.females.unadj.hr.weighted))
+print(summary(Psychosis.females.adj.hr.weighted))
+cat("Unadjusted Odds ratios\n")
+print(Psychosis.females.unadj.weighted)
+cat("Adjusted Odds ratios\n")
+print(Psychosis.females.adj.weighted)
+sink()
+
+```

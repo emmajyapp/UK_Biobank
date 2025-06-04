@@ -1,0 +1,33 @@
+Main RMD
+
+* Variable list
+* List of numbered analysis steps
+o Load packages
+o Read data and create appropriate dataset
+o Create variables
+o Descriptives
+o LCA
+o LCA for males and females separately
+o Assessment of need for multiple group LCA (difference in deviance, must be nested models, need to work out how to contrain parameters)
+o Assign people to groups
+o Do confounder, moderator, mediator analysis
+o Conduct logistic regressions
+o Adjust p-values accordingly
+
+Checks
+
+* List of numbered checks by relevant grouping e.g. 1.1, 2.3
+* Descriptives
+o Check for outliers in descriptives, compare to Davies results.
+* LCA
+o Create correlation matrix of raw data
+o Examine class probabilities across items and compare to correlation data
+o Check the line graph for the observed vs model-predicted data
+o Check for correlations between classes
+o Check for correlations between factor residuals
+o Tabulate observed, expected, and bivariate residuals https://gist.github.com/daob/883fbffdff6762c3bb90b3d8d3d0ae6e 
+o Within classes - check correlations between items to assess for local dependence
+* Assigning people to groups
+o Inspect class probabilities, individual responses, and missing data to assess whether class assignment looks feasible. DO this for top 100 and bottom 100.
+o Regress item responses on covariates  ?
+
